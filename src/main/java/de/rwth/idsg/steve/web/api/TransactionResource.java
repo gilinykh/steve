@@ -2,6 +2,7 @@ package de.rwth.idsg.steve.web.api;
 
 import de.rwth.idsg.steve.repository.TransactionRepository;
 import de.rwth.idsg.steve.repository.dto.Transaction;
+import de.rwth.idsg.steve.repository.dto.TransactionDetails;
 import de.rwth.idsg.steve.service.ChargePointService16_Client;
 import lombok.AllArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -28,6 +29,11 @@ public class TransactionResource {
     public ResponseEntity<List<Transaction>> userTransactions(@PathVariable String idTag) {
         TransactionListRequest request = new TransactionListRequest(idTag);
         return ResponseEntity.ok(transactionRepository.getTransactions(request.asQuery()));
+    }
+
+    @GetMapping("/{transactionId}")
+    public ResponseEntity<TransactionDetails> transactionDetails(@PathVariable Integer transactionId) {
+        return ResponseEntity.ok(transactionRepository.getDetails(transactionId));
     }
 
     @DeleteMapping
