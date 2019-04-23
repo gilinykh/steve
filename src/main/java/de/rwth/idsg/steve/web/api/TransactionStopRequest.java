@@ -31,6 +31,6 @@ public class TransactionStopRequest {
         RemoteStopTransactionParams params = new RemoteStopTransactionParams();
         params.setTransactionId(transactionId());
         params.setChargePointSelectList(Arrays.asList(new ChargePointSelect(OcppTransport.JSON, chargeBoxId(), endpointAddress())));
-        return null;
+        return params;
     }
 }
