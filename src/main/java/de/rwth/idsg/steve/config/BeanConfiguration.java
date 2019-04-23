@@ -77,7 +77,7 @@ public class BeanConfiguration implements WebMvcConfigurer {
         hc.addDataSourceProperty(PropertyDefinitions.PNAME_prepStmtCacheSqlLimit, 2048);
         hc.addDataSourceProperty(PropertyDefinitions.PNAME_characterEncoding, "utf8");
         hc.addDataSourceProperty(PropertyDefinitions.PNAME_serverTimezone, CONFIG.getTimeZoneId());
-        hc.addDataSourceProperty(PropertyDefinitions.PNAME_useSSL, true);
+        hc.addDataSourceProperty(PropertyDefinitions.PNAME_useSSL, false);
 
         dataSource = new HikariDataSource(hc);
     }
