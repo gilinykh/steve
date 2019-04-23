@@ -25,7 +25,7 @@ public class TransactionResource {
     }
 
     @GetMapping("/{idTag}")
-    public ResponseEntity<List<Transaction>> userTransactions(@RequestParam("idTag") String idTag) {
+    public ResponseEntity<List<Transaction>> userTransactions(@PathVariable String idTag) {
         TransactionListRequest request = new TransactionListRequest(idTag);
         return ResponseEntity.ok(transactionRepository.getTransactions(request.asQuery()));
     }
