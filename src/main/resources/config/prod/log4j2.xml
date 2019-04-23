@@ -6,6 +6,9 @@
     </Properties>
 
     <Appenders>
+        <Console name="Console" target="SYSTEM_OUT">
+            <PatternLayout pattern="${logPattern}"/>
+        </Console>
         <RollingRandomAccessFile name="FILE"
                                  fileName="${sys:user.home}/logs/steve.log"
                                  filePattern="${sys:user.home}/logs/steve-%d{yyyy-MM-dd}-%i.log.gz"
@@ -29,8 +32,19 @@
         <AsyncLogger name="org.apache.tomcat.util" level="WARN"/>
         <AsyncLogger name="jndi" level="WARN"/>
 
+        <AsyncLogger name="org.apache.cxf" level="INFO"/>
+        <AsyncLogger name="org.eclipse.jetty" level="INFO"/>
+        <AsyncLogger name="com.zaxxer.hikari" level="INFO"/>
+        <AsyncLogger name="org.springframework" level="INFO"/>
+        <AsyncLogger name="org.springframework.security" level="INFO"/>
+        <AsyncLogger name="org.springframework.web.servlet" level="INFO"/>
+        <AsyncLogger name="org.springframework.web" level="TRACE"/>
+
+        <AsyncLogger name="org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping" level="TRACE"/>
+
         <AsyncRoot level="INFO">
             <AppenderRef ref="FILE"/>
+            <AppenderRef ref="Console"/>
         </AsyncRoot>
     </Loggers>
 </Configuration>
