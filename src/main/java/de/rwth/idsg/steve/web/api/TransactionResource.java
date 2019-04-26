@@ -35,13 +35,9 @@ public class TransactionResource {
     }
 
     @PostMapping("/transactions/active")
-    public ResponseEntity<Integer> started(@RequestBody TransactionStartRequest request) {
+    public ResponseEntity<Integer> started(@RequestBody TransactionStartRequest request) throws TransactionBlockedException {
         Integer transactionId = null;
-        try {
             transactionId = transactionService.startedTransactionId(request.asParams());
-        } catch (TransactionBlockedException e) {
-            throw new ResponseStatusException(HttpStatus.NO_CONTENT, "Transaction blocked!", e);
-        }
         return ResponseEntity.ok(transactionId);
     }
 
