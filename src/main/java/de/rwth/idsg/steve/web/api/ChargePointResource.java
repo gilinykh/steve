@@ -25,8 +25,8 @@ public class ChargePointResource {
         return ResponseEntity.ok(result);
     }
 
-    @GetMapping("/statuses")
-    public ResponseEntity<List<OcppJsonStatus>> statuses() {
+    @GetMapping("/connections")
+    public ResponseEntity<List<OcppJsonStatus>> connections() {
         List<OcppJsonStatus> result = chargePointHelperService.getOcppJsonStatus();
         return ResponseEntity.ok(result);
     }
