@@ -10,6 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
@@ -34,8 +35,13 @@ public class TransactionResource {
     }
 
     @PostMapping("/transactions/active")
-    public ResponseEntity<Integer> started(@RequestBody TransactionStartRequest request) throws TransactionBlockedException {
-        Integer transactionId = transactionService.startedTransactionId(request.asParams());
+    public ResponseEntity<Integer> started(@RequestBody TransactionStartRequest request) {
+        Integer transactionId = null;
+        try {
+            transactionId = transactionService.startedTransactionId(request.asParams());
+        } catch (TransactionBlockedException e) {
+            throw new ResponseStatusException(HttpStatus.NO_CONTENT, "Transaction blocked!", e);
+        }
         return ResponseEntity.ok(transactionId);
     }
 
