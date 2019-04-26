@@ -6,6 +6,7 @@ import de.rwth.idsg.steve.repository.dto.TransactionDetails;
 import de.rwth.idsg.steve.service.ChargePointService16_Client;
 import de.rwth.idsg.steve.web.dto.ocpp.RemoteStartTransactionParams;
 import lombok.AllArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.*;
@@ -33,7 +34,7 @@ public class TransactionResource {
     }
 
     @PostMapping("/transactions/active")
-    public ResponseEntity<Integer> started(@RequestBody TransactionStartRequest request) {
+    public ResponseEntity<Integer> started(@RequestBody TransactionStartRequest request) throws TransactionBlockedException {
         Integer transactionId = transactionService.startedTransactionId(request.asParams());
         return ResponseEntity.ok(transactionId);
     }
@@ -61,13 +62,13 @@ public class TransactionResource {
         private final ChargePointService16_Client client16;
         private final TransactionRepository transactionRepository;
 
-        public int startedTransactionId(RemoteStartTransactionParams params) {
+        public int startedTransactionId(RemoteStartTransactionParams params) throws TransactionBlockedException {
             client16.remoteStartTransaction(params);
 
             String chargeBoxId = params.getChargePointSelectList().get(0).getChargeBoxId();
             int txPollingTimeout = 5;
             return getFirstActiveTransactionId(chargeBoxId, txPollingTimeout)
-                    .orElseThrow(() -> new RuntimeException("Transaction hasn't been started within [" + txPollingTimeout + "] seconds interval with Charging Point [" + chargeBoxId + "]"));
+                    .orElseThrow(() -> new TransactionBlockedException(chargeBoxId, params.getIdTag(), txPollingTimeout));
         }
 
         private Optional<Integer> getFirstActiveTransactionId(String chargeBoxId, int timeoutSec) {
@@ -85,6 +86,13 @@ public class TransactionResource {
             }
 
             return Optional.empty();
+        }
+    }
+
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    static class TransactionBlockedException extends Exception {
+        TransactionBlockedException(String chargeBoxId, String idTag, int timeout) {
+            super("Transaction hasn't been started within [" + timeout + "] seconds interval for IdTag [" + idTag + "] with ChargingPoint [" + chargeBoxId + "]");
         }
     }
 }
