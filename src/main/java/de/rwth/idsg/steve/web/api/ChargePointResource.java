@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/charge-points")
+@RequestMapping("/api/evse")
 @AllArgsConstructor
 public class ChargePointResource {
 
@@ -25,7 +25,7 @@ public class ChargePointResource {
         return ResponseEntity.ok(result);
     }
 
-    @GetMapping
+    @GetMapping("/statuses")
     public ResponseEntity<List<OcppJsonStatus>> statuses() {
         List<OcppJsonStatus> result = chargePointHelperService.getOcppJsonStatus();
         return ResponseEntity.ok(result);
