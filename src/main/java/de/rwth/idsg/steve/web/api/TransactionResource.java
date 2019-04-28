@@ -10,7 +10,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
@@ -58,6 +57,19 @@ public class TransactionResource {
 
     @DeleteMapping("/transactions")
     public ResponseEntity<Void> stop(@RequestBody TransactionStopRequest request) {
+        client16.remoteStopTransaction(request.asParams());
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/transactions/{transactionId}")
+    public ResponseEntity<Void> stop2(@PathVariable Integer transactionId, @RequestParam("chargeBoxId") String chargeBoxId) {
+        TransactionStopRequest request = new TransactionStopRequest(transactionId, chargeBoxId, null);
+        client16.remoteStopTransaction(request.asParams());
+        return ResponseEntity.noContent().build();
+    }
+
+    @PutMapping("/transactions")
+    public ResponseEntity<Void> stop3(@RequestBody TransactionStopRequest request) {
         client16.remoteStopTransaction(request.asParams());
         return ResponseEntity.noContent().build();
     }
