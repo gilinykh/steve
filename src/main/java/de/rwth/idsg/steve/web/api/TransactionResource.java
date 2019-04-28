@@ -1,5 +1,8 @@
 package de.rwth.idsg.steve.web.api;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import de.rwth.idsg.steve.repository.TransactionRepository;
 import de.rwth.idsg.steve.repository.dto.Transaction;
 import de.rwth.idsg.steve.repository.dto.TransactionDetails;
@@ -53,6 +56,14 @@ public class TransactionResource {
     @GetMapping("/transactions/{transactionId}")
     public ResponseEntity<TransactionDetails> transactionDetails(@PathVariable Integer transactionId) {
         return ResponseEntity.ok(transactionRepository.getDetails(transactionId));
+    }
+
+    @GetMapping(value = "/transactions/{transactionId}/nullable", produces = {"application/json"})
+    public ResponseEntity transactionDetailsNullable(@PathVariable Integer transactionId) throws JsonProcessingException {
+        TransactionDetails transactionDetails = transactionRepository.getDetails(transactionId);
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
+        return ResponseEntity.ok(objectMapper.writeValueAsString(transactionDetails));
     }
 
     @DeleteMapping("/transactions")
