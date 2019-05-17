@@ -12,6 +12,7 @@ import de.rwth.idsg.steve.web.dto.ocpp.RemoteStartTransactionParams;
 import de.rwth.idsg.steve.web.dto.ocpp.RemoteStopTransactionParams;
 import lombok.AllArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.*;
@@ -72,7 +73,7 @@ public class TransactionResource {
         return ResponseEntity.ok(transactionRepository.getDetails(transactionId));
     }
 
-    @GetMapping(value = "/transactions/{transactionId}/nullable", produces = {"application/json"})
+    @GetMapping(value = "/transactions/{transactionId}/nullable", produces = {MediaType.APPLICATION_JSON_VALUE})
     public ResponseEntity transactionDetailsNullable(@PathVariable Integer transactionId) throws JsonProcessingException {
         TransactionDetails transactionDetails = transactionRepository.getDetails(transactionId);
         return ResponseEntity.ok(objectMapper.writeValueAsString(transactionDetails));
@@ -84,7 +85,7 @@ public class TransactionResource {
         return ResponseEntity.noContent().build();
     }
 
-    @DeleteMapping("/transactions/{transactionId}")
+    @DeleteMapping(value = "/transactions/{transactionId}", produces = {MediaType.APPLICATION_JSON_VALUE})
     public ResponseEntity stop2(@PathVariable Integer transactionId, @RequestParam("chargeBoxId") String chargeBoxId) throws JsonProcessingException {
         TransactionStopRequest request = new TransactionStopRequest(transactionId, chargeBoxId, null);
         TransactionDetails transactionDetails;
