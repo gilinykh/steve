@@ -9,6 +9,7 @@ import de.rwth.idsg.steve.repository.dto.Transaction;
 import de.rwth.idsg.steve.repository.dto.TransactionDetails;
 import de.rwth.idsg.steve.service.ChargePointService16_Client;
 import de.rwth.idsg.steve.web.dto.ocpp.RemoteStartTransactionParams;
+import de.rwth.idsg.steve.web.dto.ocpp.RemoteStopTransactionParams;
 import lombok.AllArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -18,18 +19,30 @@ import org.springframework.web.bind.annotation.*;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 @RestController
 @RequestMapping("/api")
-@AllArgsConstructor
 public class TransactionResource {
 
-    private ChargePointService16_Client client16;
+    private final ChargePointService16_Client client16;
 
-    private TransactionRepository transactionRepository;
+    private final TransactionRepository transactionRepository;
 
     private final TransactionService transactionService;
+
+    private final ObjectMapper objectMapper;
+
+    public TransactionResource(ChargePointService16_Client client16, TransactionRepository transactionRepository, TransactionService transactionService) {
+        this.client16 = client16;
+        this.transactionRepository = transactionRepository;
+        this.transactionService = transactionService;
+        this.objectMapper = new ObjectMapper();
+        objectMapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
+        objectMapper.disable(SerializationFeature.FAIL_ON_EMPTY_BEANS);
+    }
 
     @PostMapping("/transactions")
     public ResponseEntity<Void> start(@RequestBody TransactionStartRequest request) {
@@ -62,9 +75,6 @@ public class TransactionResource {
     @GetMapping(value = "/transactions/{transactionId}/nullable", produces = {"application/json"})
     public ResponseEntity transactionDetailsNullable(@PathVariable Integer transactionId) throws JsonProcessingException {
         TransactionDetails transactionDetails = transactionRepository.getDetails(transactionId);
-        ObjectMapper objectMapper = new ObjectMapper();
-        objectMapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
-        objectMapper.disable(SerializationFeature.FAIL_ON_EMPTY_BEANS);
         return ResponseEntity.ok(objectMapper.writeValueAsString(transactionDetails));
     }
 
@@ -75,10 +85,15 @@ public class TransactionResource {
     }
 
     @DeleteMapping("/transactions/{transactionId}")
-    public ResponseEntity<Void> stop2(@PathVariable Integer transactionId, @RequestParam("chargeBoxId") String chargeBoxId) {
+    public ResponseEntity stop2(@PathVariable Integer transactionId, @RequestParam("chargeBoxId") String chargeBoxId) throws JsonProcessingException {
         TransactionStopRequest request = new TransactionStopRequest(transactionId, chargeBoxId, null);
-        client16.remoteStopTransaction(request.asParams());
-        return ResponseEntity.noContent().build();
+        TransactionDetails transactionDetails;
+        try {
+            transactionDetails = transactionService.stoppedTransaction(request.asParams());
+        } catch (TransactionStopException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+        return ResponseEntity.ok(objectMapper.writeValueAsString(transactionDetails));
     }
 
     @PutMapping("/transactions")
@@ -93,25 +108,47 @@ public class TransactionResource {
         private final ChargePointService16_Client client16;
         private final TransactionRepository transactionRepository;
 
-        public int startedTransactionId(RemoteStartTransactionParams params) throws TransactionBlockedException {
+        int startedTransactionId(RemoteStartTransactionParams params) throws TransactionBlockedException {
             client16.remoteStartTransaction(params);
 
-            String chargeBoxId = params.getChargePointSelectList().get(0).getChargeBoxId();
             int txPollingTimeout = 5;
-            return getFirstActiveTransactionId(chargeBoxId, txPollingTimeout)
+            String chargeBoxId = params.getChargePointSelectList().get(0).getChargeBoxId();
+            Function<String, List<Integer>> provideTxIds = transactionRepository::getActiveTransactionIds;
+            Predicate<List<Integer>> nonEmptyFlag = Predicate.not(List::isEmpty);
+            Function<List<Integer>, Optional<Integer>> responder = l -> Optional.ofNullable(l.get(0));
+
+            return tryTimeout(txPollingTimeout, chargeBoxId, provideTxIds, nonEmptyFlag, responder)
                     .orElseThrow(() -> new TransactionBlockedException(chargeBoxId, params.getIdTag(), txPollingTimeout));
         }
 
-        private Optional<Integer> getFirstActiveTransactionId(String chargeBoxId, int timeoutSec) {
+        TransactionDetails stoppedTransaction(RemoteStopTransactionParams params) throws TransactionStopException {
+            client16.remoteStopTransaction(params);
+
+            int txPollingTimeout = 5;
+            Integer transactionId = params.getTransactionId();
+            Function<Integer, TransactionDetails> provideTx = transactionRepository::getDetails;
+            Predicate<TransactionDetails> stopFlag = details -> details.getTransaction().getStopTimestampDT() != null;
+            Function<TransactionDetails, Optional<TransactionDetails>> responder = Optional::ofNullable;
+
+            return tryTimeout(txPollingTimeout, transactionId, provideTx, stopFlag, responder)
+                    .orElseThrow(() -> new TransactionStopException(transactionId, txPollingTimeout));
+        }
+
+        // accepts param <P>
+        // derives from it entity <E>
+        // tests it to match a condition
+        // responds with response <R>
+        private <E, P, R> Optional<R> tryTimeout(int timeoutSec, P input, Function<P, E> provider, Predicate<E> condition, Function<E, Optional<R>> responder) {
             Supplier<Long> nowMillis = () -> Instant.now().toEpochMilli();
             long startMillis = nowMillis.get();
             long currentMillis = startMillis;
-            List<Integer> transactionIds;
+            E entity;
 
             while(currentMillis < startMillis + timeoutSec * 1000) {
-                transactionIds = transactionRepository.getActiveTransactionIds(chargeBoxId);
-                if (transactionIds.size() > 0) {
-                    return Optional.of(transactionIds.get(0));
+                entity = provider.apply(input);
+
+                if (condition.test(entity)) {
+                    return responder.apply(entity);
                 }
                 currentMillis = nowMillis.get();
             }
@@ -124,6 +161,13 @@ public class TransactionResource {
     static class TransactionBlockedException extends Exception {
         TransactionBlockedException(String chargeBoxId, String idTag, int timeout) {
             super("Transaction hasn't been started within [" + timeout + "] seconds interval for IdTag [" + idTag + "] with ChargingPoint [" + chargeBoxId + "]");
+        }
+    }
+
+    @ResponseStatus(HttpStatus.CONFLICT)
+    static class TransactionStopException extends Exception {
+        public TransactionStopException(Integer transactionId, int timeout) {
+            super("Transaction [" + transactionId + "] didn't finish within [" + timeout + "] seconds interval.");
         }
     }
 }
