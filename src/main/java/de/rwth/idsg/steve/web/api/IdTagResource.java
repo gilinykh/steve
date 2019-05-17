@@ -1,5 +1,6 @@
 package de.rwth.idsg.steve.web.api;
 
+import de.rwth.idsg.steve.SteveException;
 import de.rwth.idsg.steve.repository.OcppTagRepository;
 import lombok.AllArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -23,7 +24,11 @@ public class IdTagResource {
 
     @PostMapping("/{idTag}")
     public ResponseEntity add(@PathVariable("idTag") String newIdTag) {
-        ocppTagRepository.addOcppTagList(Collections.singletonList(newIdTag));
+        try {
+            ocppTagRepository.addOcppTagList(Collections.singletonList(newIdTag));
+        } catch (SteveException e) {
+            return ResponseEntity.ok().build();
+        }
         return ResponseEntity.status(HttpStatus.CREATED).build();
     }
 }
