@@ -24,7 +24,9 @@
 <div class="main">
     <div class="top-banner">
         <div class="container">
-            <a href="${ctxPath}/manager/home"><img src="${ctxPath}/static/images/ev_logo.png" height="80"></a>
+            <a href="${ctxPath}/manager/home"><img src="${ctxPath}/static/images/ev_logo.png" height="80">
+                <span style="position: absolute;top: 18px;color: white;font-size: 33px;">EVtrip</span>
+            </a>
         </div>
     </div>
     <div class="top-menu">
