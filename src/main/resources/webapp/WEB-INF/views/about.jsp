@@ -1,12 +1,6 @@
 <%@ include file="00-header.jsp" %>
 <div class="content">
-<section><span>About SteVe</span></section>
-    <c:if test="${releaseReport.moreRecent}">
-        <div class="info">A new version (${releaseReport.githubVersion}) is available!
-            <a target="_blank" href="${releaseReport.htmlUrl}">Release Info</a> -
-            <a target="_blank" href="${releaseReport.downloadUrl}">Download</a>
-        </div>
-    </c:if>
+<section><span>About EVtrip</span></section>
 <table class="userInputFullPage">
 	<tr><td>Version:</td><td>${version}</td></tr>
 	<tr><td>Database Version:</td><td>${db.version}</td></tr>
