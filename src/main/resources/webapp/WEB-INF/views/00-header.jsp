@@ -24,7 +24,7 @@
 <div class="main">
     <div class="top-banner">
         <div class="container">
-            <a href="${ctxPath}/manager/home"><img src="${ctxPath}/static/images/logo2.png" height="80"></a>
+            <a href="${ctxPath}/manager/home"><img src="${ctxPath}/static/images/ev_logo.png" height="80"></a>
         </div>
     </div>
     <div class="top-menu">
