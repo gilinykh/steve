@@ -1,8 +1,25 @@
+/*
+ * SteVe - SteckdosenVerwaltung - https://github.com/RWTH-i5-IDSG/steve
+ * Copyright (C) 2013-2020 RWTH Aachen University - Information Systems - Intelligent Distributed Systems Group (IDSG).
+ * All Rights Reserved.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 package de.rwth.idsg.steve.repository.impl;
 
 import de.rwth.idsg.steve.SteveException;
 import de.rwth.idsg.steve.ocpp.OcppProtocol;
-import de.rwth.idsg.steve.ocpp.OcppTransport;
 import de.rwth.idsg.steve.repository.AddressRepository;
 import de.rwth.idsg.steve.repository.ChargePointRepository;
 import de.rwth.idsg.steve.repository.dto.ChargePoint;
@@ -32,6 +49,7 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 import static de.rwth.idsg.steve.utils.CustomDSL.date;
@@ -58,24 +76,24 @@ public class ChargePointRepositoryImpl implements ChargePointRepository {
     }
 
     @Override
-    public boolean isRegistered(String chargeBoxId) {
-        Record1<Integer> r = ctx.selectOne()
-                                .from(CHARGE_BOX)
-                                .where(CHARGE_BOX.CHARGE_BOX_ID.eq(chargeBoxId))
-                                .fetchOne();
-        return (r != null) && (r.value1() == 1);
+    public Optional<String> getRegistrationStatus(String chargeBoxId) {
+        String status = ctx.select(CHARGE_BOX.REGISTRATION_STATUS)
+                           .from(CHARGE_BOX)
+                           .where(CHARGE_BOX.CHARGE_BOX_ID.eq(chargeBoxId))
+                           .fetchOne(CHARGE_BOX.REGISTRATION_STATUS);
+
+        return Optional.ofNullable(status);
     }
 
     @Override
-    public List<ChargePointSelect> getChargePointSelect(OcppProtocol protocol) {
-        final OcppTransport transport = protocol.getTransport();
-
+    public List<ChargePointSelect> getChargePointSelect(OcppProtocol protocol, List<String> inStatusFilter) {
         return ctx.select(CHARGE_BOX.CHARGE_BOX_ID, CHARGE_BOX.ENDPOINT_ADDRESS)
                   .from(CHARGE_BOX)
                   .where(CHARGE_BOX.OCPP_PROTOCOL.equal(protocol.getCompositeValue()))
                   .and(CHARGE_BOX.ENDPOINT_ADDRESS.isNotNull())
+                  .and(CHARGE_BOX.REGISTRATION_STATUS.in(inStatusFilter))
                   .fetch()
-                  .map(r -> new ChargePointSelect(transport, r.value1(), r.value2()));
+                  .map(r -> new ChargePointSelect(protocol.getTransport(), r.value1(), r.value2()));
     }
 
     @Override
@@ -324,6 +342,7 @@ public class ChargePointRepositoryImpl implements ChargePointRepository {
                   .set(CHARGE_BOX.LOCATION_LATITUDE, form.getLocationLatitude())
                   .set(CHARGE_BOX.LOCATION_LONGITUDE, form.getLocationLongitude())
                   .set(CHARGE_BOX.INSERT_CONNECTOR_STATUS_AFTER_TRANSACTION_MSG, form.getInsertConnectorStatusAfterTransactionMsg())
+                  .set(CHARGE_BOX.REGISTRATION_STATUS, form.getRegistrationStatus())
                   .set(CHARGE_BOX.NOTE, form.getNote())
                   .set(CHARGE_BOX.ADMIN_ADDRESS, form.getAdminAddress())
                   .set(CHARGE_BOX.ADDRESS_PK, addressPk)
@@ -338,6 +357,7 @@ public class ChargePointRepositoryImpl implements ChargePointRepository {
            .set(CHARGE_BOX.LOCATION_LATITUDE, form.getLocationLatitude())
            .set(CHARGE_BOX.LOCATION_LONGITUDE, form.getLocationLongitude())
            .set(CHARGE_BOX.INSERT_CONNECTOR_STATUS_AFTER_TRANSACTION_MSG, form.getInsertConnectorStatusAfterTransactionMsg())
+           .set(CHARGE_BOX.REGISTRATION_STATUS, form.getRegistrationStatus())
            .set(CHARGE_BOX.NOTE, form.getNote())
            .set(CHARGE_BOX.ADMIN_ADDRESS, form.getAdminAddress())
            .set(CHARGE_BOX.ADDRESS_PK, addressPk)

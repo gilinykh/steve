@@ -1,6 +1,6 @@
 ![SteVe](src/main/resources/webapp/static/images/logo.png) 
 
-[![Build Status](https://travis-ci.org/RWTH-i5-IDSG/steve.svg)](https://travis-ci.org/RWTH-i5-IDSG/steve)
+[![Build Status](https://travis-ci.org/RWTH-i5-IDSG/steve.svg?branch=master)](https://travis-ci.org/RWTH-i5-IDSG/steve)
 
 
 # Introduction
@@ -28,7 +28,7 @@ https://github.com/RWTH-i5-IDSG/steve/wiki/Charging-Station-Compatibility
 SteVe requires 
 * JDK 11 (both Oracle JDK and OpenJDK are supported)
 * Maven 
-* At least MySQL 5.7.7 (MariaDB 10.2.1 or later works as well) as database (**Note: MySQL 8.x is not supported yet**)
+* At least MySQL 5.7.7 (MariaDB 10.2.1 or later works as well) as database
 
 to build and run. 
 
@@ -38,17 +38,30 @@ SteVe is designed to run standalone, a java servlet container / web server (e.g.
 
 1. Database preparation:
 
+    **Important**: Make sure that the time zone of the MySQL server is the same as [the time zone of SteVe](src/main/java/de/rwth/idsg/steve/SteveConfiguration.java#L46). Since `UTC` is strongly recommended by OCPP, it is the default in SteVe and you should set it in MySQL, accordingly.
+
     Make sure MySQL is reachable via TCP (e.g., remove `skip-networking` from `my.cnf`).
-    The following MySQL statements can be used as database initialization (adjust database name and credentials according to your setup):
-
-    ```
-    CREATE DATABASE stevedb CHARACTER SET utf8 COLLATE utf8_unicode_ci;
-    GRANT ALL PRIVILEGES ON stevedb.* TO 'steve'@'localhost' IDENTIFIED BY 'changeme';
-    GRANT SELECT ON mysql.proc TO 'steve'@'localhost' IDENTIFIED BY 'changeme';
-    ```
+    The following MySQL statements can be used as database initialization (adjust database name and credentials according to your setup).
     
-    **Important**: Make sure that the time zone of the MySQL server is the same as [the time zone of SteVe](src/main/java/de/rwth/idsg/steve/SteveConfiguration.java#L28). Since `UTC` is strongly recommended by OCPP, it is the default in SteVe and you should set it in MySQL, accordingly.
-
+    * For MySQL 5.7:
+        ```
+        CREATE DATABASE stevedb CHARACTER SET utf8 COLLATE utf8_unicode_ci;
+        GRANT ALL PRIVILEGES ON stevedb.* TO 'steve'@'localhost' IDENTIFIED BY 'changeme';
+        GRANT SELECT ON mysql.proc TO 'steve'@'localhost' IDENTIFIED BY 'changeme';
+        ```
+    
+    * For MySQL 8:
+        ```
+        CREATE DATABASE stevedb CHARACTER SET utf8 COLLATE utf8_unicode_ci;
+        CREATE USER 'steve'@'localhost' IDENTIFIED BY 'changeme';
+        GRANT ALL PRIVILEGES ON stevedb.* TO 'steve'@'localhost';
+        GRANT SUPER ON *.* TO 'steve'@'localhost';
+        ```
+        Note: The statement `GRANT SUPER [...]` is only necessary to execute some of the previous migration files and is only needed for the initial database setup. Afterwards, you can remove this privilage by executing 
+        ```
+        REVOKE SUPER ON *.* FROM 'steve'@'localhost';
+        ```
+        
 2. Download and extract tarball:
 
     You can download and extract the SteVe releases using the following commands (replace X.X.X with the desired version number):
@@ -84,6 +97,36 @@ SteVe is designed to run standalone, a java servlet container / web server (e.g.
     # java -jar target/steve.jar
     ```
 
+# Docker
+
+If you prefer to build and start this project via docker (you can skip the steps 1 and 3, 4, 5 above), this can be done as follows: `docker-compose up -d `
+
+The web interface will be accessible at: `http://localhost:8180`
+
+# Kubernetes
+
+First build your image, and push it to a registry your K8S cluster can access. Make sure the build args in the docker build command are set with the same database configuration that the main deployment will use.
+
+`docker build --build-arg DB_HOST= --build-arg DB_PORT= --build-arg DB_USERNAME= --build-arg DB_PASSWORD= --build-arg DB_DATABASE=  -f k8s/docker/Dockerfile -t <IMAGE_NAME> .`
+
+`docker push <IMAGE_NAME>`
+
+
+Then go to `k8s/yaml/Deployment.yaml` and change `### YOUR BUILT IMAGE HERE ###` to your image tag, and fill in the environment variables with the same database connection that you used at build time.
+
+After this, create the namespace using `kubectl create ns steve` and apply your yaml with `kubectl apply -f k8s/yaml/Deployment.yaml` followed by `kubectl apply -f k8s/yaml/Service.yaml`
+
+
+To access this publicaly, you'll also have to setup an ingress using something like nginx or traefik. 
+
+# Ubuntu
+
+You'll find a tutorial how to prepare Ubuntu for SteVe here: https://github.com/RWTH-i5-IDSG/steve/wiki/Prepare-Ubuntu-VM-for-SteVe
+
+# AWS
+
+You'll find a tutorial how to setup SteVe in AWS using Lightsail here: https://github.com/RWTH-i5-IDSG/steve/wiki/Create-SteVe-Instance-in-AWS-Lightsail
+
 # First Steps
 
 After SteVe has successfully started, you can access the web interface using the configured credentials under:
@@ -98,7 +141,7 @@ The default port number is 8080.
 
 2. The charge points must be configured to communicate with following addresses. Depending on the OCPP version of the charge point, SteVe will automatically route messages to the version-specific implementation.
     - SOAP: `http://<your-server-ip>:<port>/steve/services/CentralSystemService`
-    - WebSocket/JSON: `ws://<your-server-ip>:<port>/steve/websocket/CentralSystemService/<chargeBoxId>`
+    - WebSocket/JSON: `ws://<your-server-ip>:<port>/steve/websocket/CentralSystemService`
 
 
 As soon as a heartbeat is received, you should see the status of the charge point in the SteVe Dashboard.
@@ -117,7 +160,6 @@ Screenshots
 8. [Operations - OCPP v1.2](website/screenshots/ocpp12.png)
 9. [Operations - OCPP v1.5](website/screenshots/ocpp15.png)
 10. [Settings](website/screenshots/settings.png)
-
 
 GDPR
 -----

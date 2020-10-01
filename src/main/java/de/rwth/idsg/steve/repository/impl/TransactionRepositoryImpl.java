@@ -1,3 +1,21 @@
+/*
+ * SteVe - SteckdosenVerwaltung - https://github.com/RWTH-i5-IDSG/steve
+ * Copyright (C) 2013-2020 RWTH Aachen University - Information Systems - Intelligent Distributed Systems Group (IDSG).
+ * All Rights Reserved.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 package de.rwth.idsg.steve.repository.impl;
 
 import de.rwth.idsg.steve.SteveException;
@@ -208,21 +226,6 @@ public class TransactionRepositoryImpl implements TransactionRepository {
                                                            .build());
 
         return new TransactionDetails(new TransactionMapper().map(transaction), values, nextTx);
-    }
-
-    /**
-     * See documentation of {@link TransactionRepository#getChargeBoxIdsOfActiveTransactions(String)}
-     */
-    @Override
-    public List<String> getChargeBoxIdsOfActiveTransactions(String ocppIdTag) {
-        return ctx.select(CONNECTOR.CHARGE_BOX_ID)
-                  .from(CONNECTOR)
-                  .join(TRANSACTION)
-                    .on(TRANSACTION.CONNECTOR_PK.equal(CONNECTOR.CONNECTOR_PK))
-                  .where(TRANSACTION.ID_TAG.eq(ocppIdTag))
-                    .and(TRANSACTION.STOP_VALUE.isNull())
-                    .and(TRANSACTION.STOP_TIMESTAMP.isNull())
-                  .fetch(CONNECTOR.CHARGE_BOX_ID);
     }
 
     // -------------------------------------------------------------------------

@@ -1,3 +1,21 @@
+/*
+ * SteVe - SteckdosenVerwaltung - https://github.com/RWTH-i5-IDSG/steve
+ * Copyright (C) 2013-2020 RWTH Aachen University - Information Systems - Intelligent Distributed Systems Group (IDSG).
+ * All Rights Reserved.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 package de.rwth.idsg.steve.utils;
 
 import com.google.common.collect.Sets;
@@ -50,6 +68,7 @@ public class __DatabasePreparer__ {
 
     private static final String SCHEMA_TO_TRUNCATE = "stevedb_test_2aa6a783d47d";
     private static final String REGISTERED_CHARGE_BOX_ID = "charge_box_2aa6a783d47d";
+    private static final String REGISTERED_CHARGE_BOX_ID_2 = "charge_box_2aa6a783d47d_2";
     private static final String REGISTERED_OCPP_TAG = "id_tag_2aa6a783d47d";
 
     private static final BeanConfiguration beanConfiguration = new BeanConfiguration();
@@ -82,6 +101,10 @@ public class __DatabasePreparer__ {
 
     public static String getRegisteredChargeBoxId() {
         return REGISTERED_CHARGE_BOX_ID;
+    }
+
+    public static String getRegisteredChargeBoxId2() {
+        return REGISTERED_CHARGE_BOX_ID_2;
     }
 
     public static String getRegisteredOcppTag() {
@@ -161,6 +184,10 @@ public class __DatabasePreparer__ {
     private static void insertChargeBox(DSLContext ctx) {
         ctx.insertInto(CHARGE_BOX)
            .set(CHARGE_BOX.CHARGE_BOX_ID, getRegisteredChargeBoxId())
+           .execute();
+
+        ctx.insertInto(CHARGE_BOX)
+           .set(CHARGE_BOX.CHARGE_BOX_ID, getRegisteredChargeBoxId2())
            .execute();
     }
 

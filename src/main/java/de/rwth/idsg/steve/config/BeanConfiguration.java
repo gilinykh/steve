@@ -1,7 +1,25 @@
+/*
+ * SteVe - SteckdosenVerwaltung - https://github.com/RWTH-i5-IDSG/steve
+ * Copyright (C) 2013-2020 RWTH Aachen University - Information Systems - Intelligent Distributed Systems Group (IDSG).
+ * All Rights Reserved.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 package de.rwth.idsg.steve.config;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import com.mysql.cj.conf.PropertyDefinitions;
+import com.mysql.cj.conf.PropertyKey;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import de.rwth.idsg.steve.SteveConfiguration;
@@ -71,13 +89,13 @@ public class BeanConfiguration implements WebMvcConfigurer {
         hc.setPassword(dbConfig.getPassword());
 
         // set non-standard params
-        hc.addDataSourceProperty(PropertyDefinitions.PNAME_cachePrepStmts, true);
-        hc.addDataSourceProperty(PropertyDefinitions.PNAME_useServerPrepStmts, true);
-        hc.addDataSourceProperty(PropertyDefinitions.PNAME_prepStmtCacheSize, 250);
-        hc.addDataSourceProperty(PropertyDefinitions.PNAME_prepStmtCacheSqlLimit, 2048);
-        hc.addDataSourceProperty(PropertyDefinitions.PNAME_characterEncoding, "utf8");
-        hc.addDataSourceProperty(PropertyDefinitions.PNAME_serverTimezone, CONFIG.getTimeZoneId());
-        hc.addDataSourceProperty(PropertyDefinitions.PNAME_useSSL, false);
+        hc.addDataSourceProperty(PropertyKey.cachePrepStmts.getKeyName(), true);
+        hc.addDataSourceProperty(PropertyKey.useServerPrepStmts.getKeyName(), true);
+        hc.addDataSourceProperty(PropertyKey.prepStmtCacheSize.getKeyName(), 250);
+        hc.addDataSourceProperty(PropertyKey.prepStmtCacheSqlLimit.getKeyName(), 2048);
+        hc.addDataSourceProperty(PropertyKey.characterEncoding.getKeyName(), "utf8");
+        hc.addDataSourceProperty(PropertyKey.serverTimezone.getKeyName(), CONFIG.getTimeZoneId());
+        hc.addDataSourceProperty(PropertyKey.useSSL.getKeyName(), true);
 
         dataSource = new HikariDataSource(hc);
     }

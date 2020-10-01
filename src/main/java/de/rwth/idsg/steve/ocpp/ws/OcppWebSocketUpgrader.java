@@ -1,8 +1,28 @@
+/*
+ * SteVe - SteckdosenVerwaltung - https://github.com/RWTH-i5-IDSG/steve
+ * Copyright (C) 2013-2020 RWTH Aachen University - Information Systems - Intelligent Distributed Systems Group (IDSG).
+ * All Rights Reserved.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 package de.rwth.idsg.steve.ocpp.ws;
 
 import de.rwth.idsg.steve.service.ChargePointHelperService;
 import de.rwth.idsg.steve.service.NotificationService;
+import ocpp.cs._2015._10.RegistrationStatus;
 import org.eclipse.jetty.websocket.api.WebSocketPolicy;
+import org.jetbrains.annotations.Nullable;
 import org.springframework.http.server.ServerHttpRequest;
 import org.springframework.http.server.ServerHttpResponse;
 import org.springframework.web.socket.WebSocketExtension;
@@ -10,10 +30,10 @@ import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.server.HandshakeFailureException;
 import org.springframework.web.socket.server.jetty.JettyRequestUpgradeStrategy;
 
-import org.jetbrains.annotations.Nullable;
 import java.security.Principal;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * @author Sevket Goekay <goekay@dbis.rwth-aachen.de>
@@ -44,14 +64,15 @@ public class OcppWebSocketUpgrader extends JettyRequestUpgradeStrategy {
         // -------------------------------------------------------------------------
 
         String chargeBoxId = getLastBitFromUrl(request.getURI().getPath());
-        if (chargePointHelperService.isRegistered(chargeBoxId)) {
+        Optional<RegistrationStatus> status = chargePointHelperService.getRegistrationStatus(chargeBoxId);
+
+        // Allow connections, if station is in db (registration_status field from db does not matter)
+        boolean allowConnection = status.isPresent();
+
+        if (allowConnection) {
             attributes.put(AbstractWebSocketEndpoint.CHARGEBOX_ID_KEY, chargeBoxId);
         } else {
-            // send only if the station is not registered, because otherwise, after the connection it will send a boot
-            // notification message and we handle the notifications for these normal cases in service classes already.
-            notificationService.ocppStationBooted(chargeBoxId, false);
-
-            throw new HandshakeFailureException("ChargeBoxId '" + chargeBoxId + "' is not registered");
+            throw new HandshakeFailureException("ChargeBoxId '" + chargeBoxId + "' is not recognized.");
         }
 
         // -------------------------------------------------------------------------

@@ -1,5 +1,24 @@
+/*
+ * SteVe - SteckdosenVerwaltung - https://github.com/RWTH-i5-IDSG/steve
+ * Copyright (C) 2013-2020 RWTH Aachen University - Information Systems - Intelligent Distributed Systems Group (IDSG).
+ * All Rights Reserved.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 package de.rwth.idsg.steve.web.controller;
 
+import de.rwth.idsg.steve.ocpp.OcppProtocol;
 import de.rwth.idsg.steve.repository.ChargePointRepository;
 import de.rwth.idsg.steve.repository.dto.ChargePoint;
 import de.rwth.idsg.steve.service.ChargePointHelperService;
@@ -7,6 +26,7 @@ import de.rwth.idsg.steve.utils.ControllerHelper;
 import de.rwth.idsg.steve.web.dto.ChargePointBatchInsertForm;
 import de.rwth.idsg.steve.web.dto.ChargePointForm;
 import de.rwth.idsg.steve.web.dto.ChargePointQueryForm;
+import jooq.steve.db.tables.records.ChargeBoxRecord;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -17,8 +37,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 
 import javax.validation.Valid;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  *
@@ -34,6 +56,14 @@ public class ChargePointsController {
 
     protected static final String PARAMS = "params";
 
+    private static final List<String> upToOcpp15RegistrationStatusList = Arrays.stream(ocpp.cs._2012._06.RegistrationStatus.values())
+                                                                               .map(ocpp.cs._2012._06.RegistrationStatus::value)
+                                                                               .collect(Collectors.toList());
+
+    private static final List<String> ocpp16RegistrationStatusList = Arrays.stream(ocpp.cs._2015._10.RegistrationStatus.values())
+                                                                           .map(ocpp.cs._2015._10.RegistrationStatus::value)
+                                                                           .collect(Collectors.toList());
+
     // -------------------------------------------------------------------------
     // Paths
     // -------------------------------------------------------------------------
@@ -48,8 +78,11 @@ public class ChargePointsController {
     protected static final String ADD_SINGLE_PATH = "/add/single";
     protected static final String ADD_BATCH_PATH = "/add/batch";
 
-    protected static final String UNKNOWN_REMOVE_PATH = "/unknown/remove/{chargeBoxId}";
-    protected static final String UNKNOWN_ADD_PATH = "/unknown/add/{chargeBoxId}";
+    // We need the slash at the end to support chargeBoxIds with dots etc. in them
+    // Issue: https://github.com/RWTH-i5-IDSG/steve/issues/270
+    // Solution: https://stackoverflow.com/a/18378817
+    protected static final String UNKNOWN_REMOVE_PATH = "/unknown/remove/{chargeBoxId}/";
+    protected static final String UNKNOWN_ADD_PATH = "/unknown/add/{chargeBoxId}/";
 
     // -------------------------------------------------------------------------
     // HTTP methods
@@ -86,21 +119,39 @@ public class ChargePointsController {
         form.setLocationLongitude(cp.getChargeBox().getLocationLongitude());
         form.setInsertConnectorStatusAfterTransactionMsg(cp.getChargeBox().getInsertConnectorStatusAfterTransactionMsg());
         form.setAdminAddress(cp.getChargeBox().getAdminAddress());
+        form.setRegistrationStatus(cp.getChargeBox().getRegistrationStatus());
 
         form.setAddress(ControllerHelper.recordToDto(cp.getAddress()));
 
         model.addAttribute("chargePointForm", form);
         model.addAttribute("cp", cp);
+        model.addAttribute("registrationStatusList", getRegistrationStatusList(cp.getChargeBox()));
         addCountryCodes(model);
 
         return "data-man/chargepointDetails";
     }
 
+    private List<String> getRegistrationStatusList(ChargeBoxRecord chargeBoxRecord) {
+        if (chargeBoxRecord.getOcppProtocol() == null) {
+            return upToOcpp15RegistrationStatusList;
+        }
+
+        OcppProtocol protocol = OcppProtocol.fromCompositeValue(chargeBoxRecord.getOcppProtocol());
+        switch (protocol.getVersion()) {
+            case V_12:
+            case V_15:
+                return upToOcpp15RegistrationStatusList;
+            case V_16:
+                return ocpp16RegistrationStatusList;
+            default:
+                throw new IllegalArgumentException("Unknown OCPP version: " + protocol.getVersion());
+        }
+    }
+
     @RequestMapping(value = ADD_PATH, method = RequestMethod.GET)
     public String addGet(Model model) {
         model.addAttribute("chargePointForm", new ChargePointForm());
-        model.addAttribute("batchChargePointForm", new ChargePointBatchInsertForm());
-        addCountryCodes(model);
+        setCommonAttributesForSingleAdd(model);
         return "data-man/chargepointAdd";
     }
 
@@ -108,8 +159,7 @@ public class ChargePointsController {
     public String addSinglePost(@Valid @ModelAttribute("chargePointForm") ChargePointForm chargePointForm,
                                 BindingResult result, Model model) {
         if (result.hasErrors()) {
-            addCountryCodes(model);
-            model.addAttribute("batchChargePointForm", new ChargePointBatchInsertForm());
+            setCommonAttributesForSingleAdd(model);
             return "data-man/chargepointAdd";
         }
 
@@ -185,6 +235,13 @@ public class ChargePointsController {
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
+
+    private void setCommonAttributesForSingleAdd(Model model) {
+        addCountryCodes(model);
+        model.addAttribute("batchChargePointForm", new ChargePointBatchInsertForm());
+        // we don't know the protocol yet. but, a list with only "accepted" and "rejected" is a good starting point.
+        model.addAttribute("registrationStatusList", upToOcpp15RegistrationStatusList);
+    }
 
     private void add(ChargePointForm form) {
         chargePointRepository.addChargePoint(form);

@@ -1,5 +1,24 @@
+/*
+ * SteVe - SteckdosenVerwaltung - https://github.com/RWTH-i5-IDSG/steve
+ * Copyright (C) 2013-2020 RWTH Aachen University - Information Systems - Intelligent Distributed Systems Group (IDSG).
+ * All Rights Reserved.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 package de.rwth.idsg.steve.web.controller;
 
+import de.rwth.idsg.steve.ocpp.OcppVersion;
 import de.rwth.idsg.steve.repository.OcppTagRepository;
 import de.rwth.idsg.steve.service.ChargePointHelperService;
 import de.rwth.idsg.steve.service.ChargePointService12_Client;
@@ -69,8 +88,12 @@ public class Ocpp12Controller {
         return client12;
     }
 
+    protected void setCommonAttributesForTx(Model model) {
+        setCommonAttributes(model);
+    }
+
     protected void setCommonAttributes(Model model) {
-        model.addAttribute("cpList", chargePointHelperService.getChargePointsV12());
+        model.addAttribute("cpList", chargePointHelperService.getChargePoints(OcppVersion.V_12));
         model.addAttribute("opVersion", "v1.2");
     }
 
@@ -131,7 +154,7 @@ public class Ocpp12Controller {
 
     @RequestMapping(value = REMOTE_START_TX_PATH, method = RequestMethod.GET)
     public String getRemoteStartTx(Model model) {
-        setCommonAttributes(model);
+        setCommonAttributesForTx(model);
         setActiveUserIdTagList(model);
         model.addAttribute(PARAMS, new RemoteStartTransactionParams());
         return getPrefix() + REMOTE_START_TX_PATH;
@@ -139,7 +162,7 @@ public class Ocpp12Controller {
 
     @RequestMapping(value = REMOTE_STOP_TX_PATH, method = RequestMethod.GET)
     public String getRemoteStopTx(Model model) {
-        setCommonAttributes(model);
+        setCommonAttributesForTx(model);
         model.addAttribute(PARAMS, new RemoteStopTransactionParams());
         return getPrefix() + REMOTE_STOP_TX_PATH;
     }
@@ -214,7 +237,7 @@ public class Ocpp12Controller {
     public String postRemoteStartTx(@Valid @ModelAttribute(PARAMS) RemoteStartTransactionParams params,
                                     BindingResult result, Model model) {
         if (result.hasErrors()) {
-            setCommonAttributes(model);
+            setCommonAttributesForTx(model);
             setActiveUserIdTagList(model);
             return getPrefix() + REMOTE_START_TX_PATH;
         }
@@ -225,7 +248,7 @@ public class Ocpp12Controller {
     public String postRemoteStopTx(@Valid @ModelAttribute(PARAMS) RemoteStopTransactionParams params,
                                    BindingResult result, Model model) {
         if (result.hasErrors()) {
-            setCommonAttributes(model);
+            setCommonAttributesForTx(model);
             return getPrefix() + REMOTE_STOP_TX_PATH;
         }
         return REDIRECT_TASKS_PATH + getClient12().remoteStopTransaction(params);

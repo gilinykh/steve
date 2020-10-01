@@ -1,8 +1,27 @@
+/*
+ * SteVe - SteckdosenVerwaltung - https://github.com/RWTH-i5-IDSG/steve
+ * Copyright (C) 2013-2020 RWTH Aachen University - Information Systems - Intelligent Distributed Systems Group (IDSG).
+ * All Rights Reserved.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 package de.rwth.idsg.steve.utils;
 
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import lombok.extern.slf4j.Slf4j;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -47,14 +66,12 @@ public class PropertiesFileLoader {
 
     public String getString(String key) {
         String s = prop.getProperty(key);
+        // initial property value might be null/empty
+        checkForNullAndEmpty(key,s);
 
-        if (s == null) {
-            throw new IllegalArgumentException("The property '" + key + "' is not found");
-        }
-
-        if (s.isEmpty()) {
-            throw new IllegalArgumentException("The property '" + key + "' has no value set");
-        }
+        s = resolveIfSystemEnv(s);
+        // check again, system env value might be null/empty
+        checkForNullAndEmpty(key,s);
 
         return trim(key, s);
     }
@@ -76,6 +93,7 @@ public class PropertiesFileLoader {
         if (Strings.isNullOrEmpty(s)) {
             return null;
         }
+        s = resolveIfSystemEnv(s);
         return trim(key, s);
     }
 
@@ -84,7 +102,7 @@ public class PropertiesFileLoader {
         if (Strings.isNullOrEmpty(s)) {
             return Collections.emptyList();
         }
-
+        s = resolveIfSystemEnv(s);
         return Splitter.on(",")
                        .trimResults()
                        .omitEmptyStrings()
@@ -137,11 +155,43 @@ public class PropertiesFileLoader {
         }
     }
 
+    /**
+     * If the first character of the value of the property is a dollar sign, we deduce that this property points to a
+     * system environment variable and look it up.
+     *
+     * However, if the resolved value is null, we do not use it and fallback to the initial value. This might be the
+     * case for example with passwords, which use arbitrary characters and start with a dollar sign.
+     */
+    private static String resolveIfSystemEnv(String value) {
+        if (value == null) {
+            return null;
+        }
+        if ("$".equals(String.valueOf(value.charAt(0)))) {
+            String sysEnvValue = System.getenv(value.substring(1));
+            if (sysEnvValue != null) {
+                return sysEnvValue;
+            }
+        }
+        return value;
+    }
+
     private static String trim(String key, String value) {
+        if (value == null) {
+            return null;
+        }
         String trimmed = value.trim();
         if (!trimmed.equals(value)) {
             log.warn("The property '{}' has leading or trailing spaces which were removed!", key);
         }
         return trimmed;
+    }
+
+    private static void checkForNullAndEmpty(String key, String value) {
+        if (value == null) {
+            throw new IllegalArgumentException("The property '" + key + "' is not found");
+        }
+        if (value.isEmpty()) {
+            throw new IllegalArgumentException("The property '" + key + "' has no value set");
+        }
     }
 }

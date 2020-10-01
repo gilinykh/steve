@@ -1,5 +1,24 @@
+/*
+ * SteVe - SteckdosenVerwaltung - https://github.com/RWTH-i5-IDSG/steve
+ * Copyright (C) 2013-2020 RWTH Aachen University - Information Systems - Intelligent Distributed Systems Group (IDSG).
+ * All Rights Reserved.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 package de.rwth.idsg.steve.repository.impl;
 
+import com.google.common.base.Throwables;
 import com.google.common.util.concurrent.Striped;
 import de.rwth.idsg.steve.SteveException;
 import de.rwth.idsg.steve.repository.OcppServerRepository;
@@ -9,6 +28,8 @@ import de.rwth.idsg.steve.repository.dto.InsertTransactionParams;
 import de.rwth.idsg.steve.repository.dto.TransactionStatusUpdate;
 import de.rwth.idsg.steve.repository.dto.UpdateChargeboxParams;
 import de.rwth.idsg.steve.repository.dto.UpdateTransactionParams;
+import jooq.steve.db.enums.TransactionStopEventActor;
+import jooq.steve.db.enums.TransactionStopFailedEventActor;
 import jooq.steve.db.tables.records.ConnectorMeterValueRecord;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +42,7 @@ import org.jooq.SelectConditionStep;
 import org.jooq.impl.DSL;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
+import org.springframework.util.CollectionUtils;
 
 import java.util.List;
 import java.util.concurrent.locks.Lock;
@@ -33,6 +55,7 @@ import static jooq.steve.db.tables.ConnectorStatus.CONNECTOR_STATUS;
 import static jooq.steve.db.tables.OcppTag.OCPP_TAG;
 import static jooq.steve.db.tables.TransactionStart.TRANSACTION_START;
 import static jooq.steve.db.tables.TransactionStop.TRANSACTION_STOP;
+import static jooq.steve.db.tables.TransactionStopFailed.TRANSACTION_STOP_FAILED;
 
 /**
  * This class has methods for database access that are used by the OCPP service.
@@ -135,33 +158,49 @@ public class OcppServerRepositoryImpl implements OcppServerRepository {
 
     @Override
     public void insertMeterValues(String chargeBoxIdentity, List<MeterValue> list, int connectorId, Integer transactionId) {
-        ctx.transaction(configuration -> {
-            DSLContext ctx = DSL.using(configuration);
+        if (CollectionUtils.isEmpty(list)) {
+            return;
+        }
 
-            insertIgnoreConnector(ctx, chargeBoxIdentity, connectorId);
-            int connectorPk = getConnectorPkFromConnector(ctx, chargeBoxIdentity, connectorId);
-            batchInsertMeterValues(ctx, list, connectorPk, transactionId);
+        ctx.transaction(configuration -> {
+            try {
+                DSLContext ctx = DSL.using(configuration);
+
+                insertIgnoreConnector(ctx, chargeBoxIdentity, connectorId);
+                int connectorPk = getConnectorPkFromConnector(ctx, chargeBoxIdentity, connectorId);
+                batchInsertMeterValues(ctx, list, connectorPk, transactionId);
+            } catch (Exception e) {
+                log.error("Exception occurred", e);
+            }
         });
     }
 
     @Override
     public void insertMeterValues(String chargeBoxIdentity, List<MeterValue> list, int transactionId) {
+        if (CollectionUtils.isEmpty(list)) {
+            return;
+        }
+
         ctx.transaction(configuration -> {
-            DSLContext ctx = DSL.using(configuration);
+            try {
+                DSLContext ctx = DSL.using(configuration);
 
-            // First, get connector primary key from transaction table
-            int connectorPk = ctx.select(TRANSACTION_START.CONNECTOR_PK)
-                                 .from(TRANSACTION_START)
-                                 .where(TRANSACTION_START.TRANSACTION_PK.equal(transactionId))
-                                 .fetchOne()
-                                 .value1();
+                // First, get connector primary key from transaction table
+                int connectorPk = ctx.select(TRANSACTION_START.CONNECTOR_PK)
+                                     .from(TRANSACTION_START)
+                                     .where(TRANSACTION_START.TRANSACTION_PK.equal(transactionId))
+                                     .fetchOne()
+                                     .value1();
 
-            batchInsertMeterValues(ctx, list, connectorPk, transactionId);
+                batchInsertMeterValues(ctx, list, connectorPk, transactionId);
+            } catch (Exception e) {
+                log.error("Exception occurred", e);
+            }
         });
     }
 
     @Override
-    public Integer insertTransaction(InsertTransactionParams p) {
+    public int insertTransaction(InsertTransactionParams p) {
 
         SelectConditionStep<Record1<Integer>> connectorPkQuery =
                 DSL.select(CONNECTOR.CONNECTOR_PK)
@@ -183,7 +222,7 @@ public class OcppServerRepositoryImpl implements OcppServerRepository {
         // -------------------------------------------------------------------------
 
         TransactionDataHolder data = insertIgnoreTransaction(p, connectorPkQuery);
-        Integer transactionId = data.transactionId;
+        int transactionId = data.transactionId;
 
         if (data.existsAlready) {
             return transactionId;
@@ -220,22 +259,24 @@ public class OcppServerRepositoryImpl implements OcppServerRepository {
         // Step 1: insert transaction stop data
         // -------------------------------------------------------------------------
 
-        int transactionUpdateCount = ctx.insertInto(TRANSACTION_STOP)
-                                        .set(TRANSACTION_STOP.TRANSACTION_PK, p.getTransactionId())
-                                        .set(TRANSACTION_STOP.EVENT_TIMESTAMP, p.getEventTimestamp())
-                                        .set(TRANSACTION_STOP.EVENT_ACTOR, p.getEventActor())
-                                        .set(TRANSACTION_STOP.STOP_TIMESTAMP, p.getStopTimestamp())
-                                        .set(TRANSACTION_STOP.STOP_VALUE, p.getStopMeterValue())
-                                        .set(TRANSACTION_STOP.STOP_REASON, p.getStopReason())
-                                        .execute();
-
-        // Actually unnecessary, because JOOQ will throw an exception, if something goes wrong
-        if (transactionUpdateCount == 0) {
-            throw new SteveException("Failed to UPDATE transaction in database");
+        // JOOQ will throw an exception, if something goes wrong
+        try {
+            ctx.insertInto(TRANSACTION_STOP)
+               .set(TRANSACTION_STOP.TRANSACTION_PK, p.getTransactionId())
+               .set(TRANSACTION_STOP.EVENT_TIMESTAMP, p.getEventTimestamp())
+               .set(TRANSACTION_STOP.EVENT_ACTOR, p.getEventActor())
+               .set(TRANSACTION_STOP.STOP_TIMESTAMP, p.getStopTimestamp())
+               .set(TRANSACTION_STOP.STOP_VALUE, p.getStopMeterValue())
+               .set(TRANSACTION_STOP.STOP_REASON, p.getStopReason())
+               .execute();
+        } catch (Exception e) {
+            log.error("Exception occurred", e);
+            tryInsertingFailed(p, e);
         }
 
         // -------------------------------------------------------------------------
-        // Step 2: Set connector status back
+        // Step 2: Set connector status back. We do this even in cases where step 1
+        // fails. It probably and hopefully makes sense.
         // -------------------------------------------------------------------------
 
         if (shouldInsertConnectorStatusAfterTransactionMsg(p.getChargeBoxId())) {
@@ -255,7 +296,7 @@ public class OcppServerRepositoryImpl implements OcppServerRepository {
     @RequiredArgsConstructor(access = AccessLevel.PRIVATE)
     private static final class TransactionDataHolder {
         final boolean existsAlready;
-        final Integer transactionId;
+        final int transactionId;
     }
 
     /**
@@ -314,12 +355,16 @@ public class OcppServerRepositoryImpl implements OcppServerRepository {
                                        SelectConditionStep<Record1<Integer>> connectorPkQuery,
                                        DateTime timestamp,
                                        TransactionStatusUpdate statusUpdate) {
-        ctx.insertInto(CONNECTOR_STATUS)
-           .set(CONNECTOR_STATUS.CONNECTOR_PK, connectorPkQuery)
-           .set(CONNECTOR_STATUS.STATUS_TIMESTAMP, timestamp)
-           .set(CONNECTOR_STATUS.STATUS, statusUpdate.getStatus())
-           .set(CONNECTOR_STATUS.ERROR_CODE, statusUpdate.getErrorCode())
-           .execute();
+        try {
+            ctx.insertInto(CONNECTOR_STATUS)
+               .set(CONNECTOR_STATUS.CONNECTOR_PK, connectorPkQuery)
+               .set(CONNECTOR_STATUS.STATUS_TIMESTAMP, timestamp)
+               .set(CONNECTOR_STATUS.STATUS, statusUpdate.getStatus())
+               .set(CONNECTOR_STATUS.ERROR_CODE, statusUpdate.getErrorCode())
+               .execute();
+        } catch (Exception e) {
+            log.error("Exception occurred", e);
+        }
     }
 
     /**
@@ -395,5 +440,32 @@ public class OcppServerRepositoryImpl implements OcppServerRepository {
                     .collect(Collectors.toList());
 
         ctx.batchInsert(batch).execute();
+    }
+
+    private void tryInsertingFailed(UpdateTransactionParams p, Exception e) {
+        try {
+            ctx.insertInto(TRANSACTION_STOP_FAILED)
+               .set(TRANSACTION_STOP_FAILED.TRANSACTION_PK, p.getTransactionId())
+               .set(TRANSACTION_STOP_FAILED.EVENT_TIMESTAMP, p.getEventTimestamp())
+               .set(TRANSACTION_STOP_FAILED.EVENT_ACTOR, mapActor(p.getEventActor()))
+               .set(TRANSACTION_STOP_FAILED.STOP_TIMESTAMP, p.getStopTimestamp())
+               .set(TRANSACTION_STOP_FAILED.STOP_VALUE, p.getStopMeterValue())
+               .set(TRANSACTION_STOP_FAILED.STOP_REASON, p.getStopReason())
+               .set(TRANSACTION_STOP_FAILED.FAIL_REASON, Throwables.getStackTraceAsString(e))
+               .execute();
+        } catch (Exception ex) {
+            // This is where we give up and just log
+            log.error("Exception occurred", e);
+        }
+    }
+
+    private static TransactionStopFailedEventActor mapActor(TransactionStopEventActor a) {
+        for (TransactionStopFailedEventActor b : TransactionStopFailedEventActor.values()) {
+            if (b.getLiteral().equalsIgnoreCase(a.getLiteral())) {
+                return b;
+            }
+        }
+        // if unknown, do not throw exceptions. just insert manual.
+        return TransactionStopFailedEventActor.manual;
     }
 }

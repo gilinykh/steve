@@ -1,7 +1,24 @@
+/*
+ * SteVe - SteckdosenVerwaltung - https://github.com/RWTH-i5-IDSG/steve
+ * Copyright (C) 2013-2020 RWTH Aachen University - Information Systems - Intelligent Distributed Systems Group (IDSG).
+ * All Rights Reserved.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 package de.rwth.idsg.steve.service;
 
 import de.rwth.idsg.steve.ocpp.OcppProtocol;
-import de.rwth.idsg.steve.repository.ChargePointRepository;
 import de.rwth.idsg.steve.repository.OcppServerRepository;
 import de.rwth.idsg.steve.repository.SettingsRepository;
 import de.rwth.idsg.steve.repository.dto.InsertConnectorStatusParams;
@@ -10,6 +27,7 @@ import de.rwth.idsg.steve.repository.dto.UpdateChargeboxParams;
 import de.rwth.idsg.steve.repository.dto.UpdateTransactionParams;
 import jooq.steve.db.enums.TransactionStopEventActor;
 import lombok.extern.slf4j.Slf4j;
+import ocpp.cs._2015._10.AuthorizationStatus;
 import ocpp.cs._2015._10.AuthorizeRequest;
 import ocpp.cs._2015._10.AuthorizeResponse;
 import ocpp.cs._2015._10.BootNotificationRequest;
@@ -38,6 +56,8 @@ import org.joda.time.DateTime;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.Optional;
+
 /**
  * @author Sevket Goekay <goekay@dbis.rwth-aachen.de>
  * @since 13.03.2018
@@ -56,12 +76,16 @@ public class CentralSystemService16_Service {
     public BootNotificationResponse bootNotification(BootNotificationRequest parameters, String chargeBoxIdentity,
                                                      OcppProtocol ocppProtocol) {
 
-        boolean isRegistered = chargePointHelperService.isRegistered(chargeBoxIdentity);
-        notificationService.ocppStationBooted(chargeBoxIdentity, isRegistered);
+        Optional<RegistrationStatus> status = chargePointHelperService.getRegistrationStatus(chargeBoxIdentity);
+        notificationService.ocppStationBooted(chargeBoxIdentity, status);
         DateTime now = DateTime.now();
 
-        if (isRegistered) {
-            log.info("The chargebox '{}' is registered and its boot acknowledged.", chargeBoxIdentity);
+        if (status.isEmpty()) {
+            // Applies only to stations not in db (regardless of the registration_status field from db)
+            log.error("The chargebox '{}' is NOT in database.", chargeBoxIdentity);
+        } else {
+            // Applies to all stations in db (even with registration_status Rejected)
+            log.info("The boot of the chargebox '{}' with registration status '{}' is acknowledged.", chargeBoxIdentity, status);
             UpdateChargeboxParams params =
                     UpdateChargeboxParams.builder()
                                          .ocppProtocol(ocppProtocol)
@@ -79,12 +103,10 @@ public class CentralSystemService16_Service {
                                          .build();
 
             ocppServerRepository.updateChargebox(params);
-        } else {
-            log.error("The chargebox '{}' is NOT registered and its boot NOT acknowledged.", chargeBoxIdentity);
         }
 
         return new BootNotificationResponse()
-                .withStatus(isRegistered ? RegistrationStatus.ACCEPTED : RegistrationStatus.REJECTED)
+                .withStatus(status.orElse(RegistrationStatus.REJECTED))
                 .withCurrentTime(now)
                 .withInterval(settingsRepository.getHeartbeatIntervalInSeconds());
     }
@@ -124,10 +146,13 @@ public class CentralSystemService16_Service {
     }
 
     public MeterValuesResponse meterValues(MeterValuesRequest parameters, String chargeBoxIdentity) {
-        if (parameters.isSetMeterValue()) {
-            ocppServerRepository.insertMeterValues(chargeBoxIdentity, parameters.getMeterValue(),
-                                                   parameters.getConnectorId(), parameters.getTransactionId());
-        }
+        ocppServerRepository.insertMeterValues(
+                chargeBoxIdentity,
+                parameters.getMeterValue(),
+                parameters.getConnectorId(),
+                parameters.getTransactionId()
+        );
+
         return new MeterValuesResponse();
     }
 
@@ -139,6 +164,13 @@ public class CentralSystemService16_Service {
     }
 
     public StartTransactionResponse startTransaction(StartTransactionRequest parameters, String chargeBoxIdentity) {
+        // Get the authorization info of the user, before making tx changes (will affectAuthorizationStatus)
+        IdTagInfo info = ocppTagService.getIdTagInfo(
+                parameters.getIdTag(),
+                true,
+                () -> new IdTagInfo().withStatus(AuthorizationStatus.INVALID) // IdTagInfo is required
+        );
+
         InsertTransactionParams params =
                 InsertTransactionParams.builder()
                                        .chargeBoxId(chargeBoxIdentity)
@@ -150,8 +182,9 @@ public class CentralSystemService16_Service {
                                        .eventTimestamp(DateTime.now())
                                        .build();
 
-        Integer transactionId = ocppServerRepository.insertTransaction(params);
-        IdTagInfo info = ocppTagService.getIdTagInfo(parameters.getIdTag(), chargeBoxIdentity);
+        int transactionId = ocppServerRepository.insertTransaction(params);
+
+        notificationService.ocppTransactionStarted(chargeBoxIdentity, transactionId, parameters.getConnectorId());
 
         return new StartTransactionResponse()
                 .withIdTagInfo(info)
@@ -161,6 +194,13 @@ public class CentralSystemService16_Service {
     public StopTransactionResponse stopTransaction(StopTransactionRequest parameters, String chargeBoxIdentity) {
         int transactionId = parameters.getTransactionId();
         String stopReason = parameters.isSetReason() ? parameters.getReason().value() : null;
+
+        // Get the authorization info of the user, before making tx changes (will affectAuthorizationStatus)
+        IdTagInfo idTagInfo = ocppTagService.getIdTagInfo(
+                parameters.getIdTag(),
+                false,
+                () -> null
+        );
 
         UpdateTransactionParams params =
                 UpdateTransactionParams.builder()
@@ -175,17 +215,11 @@ public class CentralSystemService16_Service {
 
         ocppServerRepository.updateTransaction(params);
 
-        if (parameters.isSetTransactionData()) {
-            ocppServerRepository.insertMeterValues(chargeBoxIdentity, parameters.getTransactionData(), transactionId);
-        }
+        ocppServerRepository.insertMeterValues(chargeBoxIdentity, parameters.getTransactionData(), transactionId);
 
-        // Get the authorization info of the user
-        if (parameters.isSetIdTag()) {
-            IdTagInfo idTagInfo = ocppTagService.getIdTagInfo(parameters.getIdTag(), chargeBoxIdentity);
-            return new StopTransactionResponse().withIdTagInfo(idTagInfo);
-        } else {
-            return new StopTransactionResponse();
-        }
+        notificationService.ocppTransactionEnded(chargeBoxIdentity, transactionId);
+
+        return new StopTransactionResponse().withIdTagInfo(idTagInfo);
     }
 
     public HeartbeatResponse heartbeat(HeartbeatRequest parameters, String chargeBoxIdentity) {
@@ -197,8 +231,11 @@ public class CentralSystemService16_Service {
 
     public AuthorizeResponse authorize(AuthorizeRequest parameters, String chargeBoxIdentity) {
         // Get the authorization info of the user
-        String idTag = parameters.getIdTag();
-        IdTagInfo idTagInfo = ocppTagService.getIdTagInfo(idTag, chargeBoxIdentity);
+        IdTagInfo idTagInfo = ocppTagService.getIdTagInfo(
+                parameters.getIdTag(),
+                false,
+                () -> new IdTagInfo().withStatus(AuthorizationStatus.INVALID)
+        );
 
         return new AuthorizeResponse().withIdTagInfo(idTagInfo);
     }
