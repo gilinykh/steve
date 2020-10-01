@@ -30,11 +30,11 @@ public class TransactionStartRequest {
         this.ocppIdTag = ocppIdTag;
     }
 
-    public RemoteStartTransactionParams asParams() {
+    public RemoteStartTransactionParams asParams(OcppTransport transport) {
         RemoteStartTransactionParams params = new RemoteStartTransactionParams();
         params.setConnectorId(connectorId());
         params.setIdTag(ocppIdTag());
-        params.setChargePointSelectList(Arrays.asList(new ChargePointSelect(OcppTransport.JSON, chargeBoxId(), endpointAddress())));
+        params.setChargePointSelectList(Arrays.asList(new ChargePointSelect(transport, chargeBoxId(), endpointAddress())));
         return params;
     }
 }

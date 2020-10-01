@@ -27,10 +27,10 @@ public class TransactionStopRequest {
         this.endpointAddress = endpointAddress;
     }
 
-    public RemoteStopTransactionParams asParams() {
+    public RemoteStopTransactionParams asParams(OcppTransport transport) {
         RemoteStopTransactionParams params = new RemoteStopTransactionParams();
         params.setTransactionId(transactionId());
-        params.setChargePointSelectList(Arrays.asList(new ChargePointSelect(OcppTransport.JSON, chargeBoxId(), endpointAddress())));
+        params.setChargePointSelectList(Arrays.asList(new ChargePointSelect(transport, chargeBoxId(), endpointAddress())));
         return params;
     }
 }

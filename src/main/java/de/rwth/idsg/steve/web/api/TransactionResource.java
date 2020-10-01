@@ -4,12 +4,15 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import de.rwth.idsg.steve.ocpp.OcppProtocol;
+import de.rwth.idsg.steve.ocpp.OcppTransport;
+import de.rwth.idsg.steve.repository.ChargePointRepository;
 import de.rwth.idsg.steve.repository.TransactionRepository;
+import de.rwth.idsg.steve.repository.dto.ChargePoint;
 import de.rwth.idsg.steve.repository.dto.Transaction;
 import de.rwth.idsg.steve.repository.dto.TransactionDetails;
+import de.rwth.idsg.steve.service.ChargePointService15_Client;
 import de.rwth.idsg.steve.service.ChargePointService16_Client;
-import de.rwth.idsg.steve.web.dto.ocpp.RemoteStartTransactionParams;
-import de.rwth.idsg.steve.web.dto.ocpp.RemoteStopTransactionParams;
 import lombok.AllArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -28,6 +31,7 @@ import java.util.function.Supplier;
 @RequestMapping("/api")
 public class TransactionResource {
 
+    private final ChargePointService15_Client client15;
     private final ChargePointService16_Client client16;
 
     private final TransactionRepository transactionRepository;
@@ -36,26 +40,64 @@ public class TransactionResource {
 
     private final ObjectMapper objectMapper;
 
-    public TransactionResource(ChargePointService16_Client client16, TransactionRepository transactionRepository, TransactionService transactionService) {
+    private final ChargePointRepository chargePointRepository;
+
+    public TransactionResource(ChargePointService15_Client client15, ChargePointService16_Client client16,
+                               TransactionRepository transactionRepository, TransactionService transactionService,
+                               ChargePointRepository chargePointRepository) {
+        this.client15 = client15;
         this.client16 = client16;
         this.transactionRepository = transactionRepository;
         this.transactionService = transactionService;
+        this.chargePointRepository = chargePointRepository;
         this.objectMapper = new ObjectMapper();
         objectMapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
         objectMapper.disable(SerializationFeature.FAIL_ON_EMPTY_BEANS);
     }
 
+    private static Runnable versionedOperation(OcppProtocol protocol, Function<OcppTransport, Integer> v15Operation, Function<OcppTransport, Integer> v16Operation) {
+        switch(protocol.getVersion()) {
+            case V_15:
+                return () -> v15Operation.apply(protocol.getTransport());
+            case V_16:
+                return () -> v16Operation.apply(protocol.getTransport());
+            default:
+                throw new IllegalArgumentException("Unsupported OCPP protocol [" + protocol.getVersion() + protocol.getTransport() + "]");
+        }
+    }
+
     @PostMapping("/transactions")
-    public ResponseEntity<Void> start(@RequestBody TransactionStartRequest request) {
-        client16.remoteStartTransaction(request.asParams());
+    public ResponseEntity<?> start(@RequestBody TransactionStartRequest request) {
+        Optional<OcppProtocol> protocol = chargeBoxOcppProtocol(request.chargeBoxId());
+
+        if (!protocol.isPresent()) {
+            return ResponseEntity.unprocessableEntity().body("Cannot evaluate OCPP protocol of charge box [" + request.chargeBoxId() + "]");
+        }
+
+        versionedOperation(protocol.get(),
+                transport -> client15.remoteStartTransaction(request.asParams(transport)),
+                transport -> client16.remoteStartTransaction(request.asParams(transport)))
+                .run();
+
         return ResponseEntity.ok().build();
     }
 
     @PostMapping("/transactions/active")
-    public ResponseEntity started(@RequestBody TransactionStartRequest request) {
-        Integer transactionId = null;
+    public ResponseEntity<?> started(@RequestBody TransactionStartRequest request) {
+        int transactionId;
+        Optional<OcppProtocol> protocol = chargeBoxOcppProtocol(request.chargeBoxId());
+
+        if (!protocol.isPresent()) {
+            return ResponseEntity.unprocessableEntity().body("Cannot evaluate OCPP protocol of charge box [" + request.chargeBoxId() + "]");
+        }
+
+        versionedOperation(protocol.get(),
+                transport -> client15.remoteStartTransaction(request.asParams(transport)),
+                transport -> client16.remoteStartTransaction(request.asParams(transport)))
+                .run();
+
         try {
-            transactionId = transactionService.startedTransactionId(request.asParams());
+            transactionId = transactionService.startedTransactionId(request.chargeBoxId(), request.ocppIdTag());
         } catch (TransactionBlockedException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
@@ -74,23 +116,44 @@ public class TransactionResource {
     }
 
     @GetMapping(value = "/transactions/{transactionId}/nullable", produces = {MediaType.APPLICATION_JSON_VALUE})
-    public ResponseEntity transactionDetailsNullable(@PathVariable Integer transactionId) throws JsonProcessingException {
+    public ResponseEntity<?> transactionDetailsNullable(@PathVariable Integer transactionId) throws JsonProcessingException {
         TransactionDetails transactionDetails = transactionRepository.getDetails(transactionId);
         return ResponseEntity.ok(objectMapper.writeValueAsString(transactionDetails));
     }
 
     @DeleteMapping("/transactions")
-    public ResponseEntity<Void> stop(@RequestBody TransactionStopRequest request) {
-        client16.remoteStopTransaction(request.asParams());
+    public ResponseEntity<?> stop(@RequestBody TransactionStopRequest request) {
+        Optional<OcppProtocol> protocol = chargeBoxOcppProtocol(request.chargeBoxId());
+
+        if (!protocol.isPresent()) {
+            return ResponseEntity.unprocessableEntity().body("Cannot evaluate OCPP protocol of charge box [" + request.chargeBoxId() + "]");
+        }
+
+        versionedOperation(protocol.get(),
+                transport -> client15.remoteStopTransaction(request.asParams(transport)),
+                transport -> client16.remoteStopTransaction(request.asParams(transport)))
+                .run();
+
         return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping(value = "/transactions/{transactionId}", produces = {MediaType.APPLICATION_JSON_VALUE})
-    public ResponseEntity stop2(@PathVariable Integer transactionId, @RequestParam("chargeBoxId") String chargeBoxId) throws JsonProcessingException {
+    public ResponseEntity<?> stop2(@PathVariable Integer transactionId, @RequestParam("chargeBoxId") String chargeBoxId) throws JsonProcessingException {
         TransactionStopRequest request = new TransactionStopRequest(transactionId, chargeBoxId, null);
         TransactionDetails transactionDetails;
+        Optional<OcppProtocol> protocol = chargeBoxOcppProtocol(request.chargeBoxId());
+
+        if (!protocol.isPresent()) {
+            return ResponseEntity.unprocessableEntity().body("Cannot evaluate OCPP protocol of charge box [" + request.chargeBoxId() + "]");
+        }
+
+        versionedOperation(protocol.get(),
+                transport -> client15.remoteStopTransaction(request.asParams(transport)),
+                transport -> client16.remoteStopTransaction(request.asParams(transport)))
+                .run();
+
         try {
-            transactionDetails = transactionService.stoppedTransaction(request.asParams());
+            transactionDetails = transactionService.stoppedTransaction(transactionId);
         } catch (TransactionStopException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
@@ -98,35 +161,38 @@ public class TransactionResource {
     }
 
     @PutMapping("/transactions")
-    public ResponseEntity<Void> stop3(@RequestBody TransactionStopRequest request) {
-        client16.remoteStopTransaction(request.asParams());
-        return ResponseEntity.noContent().build();
+    public ResponseEntity<?> stop3(@RequestBody TransactionStopRequest request) {
+        return stop(request);
+    }
+
+    private Optional<OcppProtocol> chargeBoxOcppProtocol(String chargeBoxId) {
+        Integer chargeBoxPk = chargePointRepository.getChargeBoxIdPkPair(List.of(chargeBoxId)).get(chargeBoxId);
+
+        if (chargeBoxPk == null) {
+            return Optional.empty();
+        }
+
+        ChargePoint.Details details = chargePointRepository.getDetails(chargeBoxPk);
+        return Optional.of(OcppProtocol.fromCompositeValue(details.getChargeBox().getOcppProtocol()));
     }
 
     @Service
     @AllArgsConstructor
     static class TransactionService {
-        private final ChargePointService16_Client client16;
         private final TransactionRepository transactionRepository;
 
-        int startedTransactionId(RemoteStartTransactionParams params) throws TransactionBlockedException {
-            client16.remoteStartTransaction(params);
-
+        int startedTransactionId(String chargeBoxId, String idTag) throws TransactionBlockedException {
             int txPollingTimeout = 5;
-            String chargeBoxId = params.getChargePointSelectList().get(0).getChargeBoxId();
             Function<String, List<Integer>> provideTxIds = transactionRepository::getActiveTransactionIds;
             Predicate<List<Integer>> nonEmptyFlag = Predicate.not(List::isEmpty);
             Function<List<Integer>, Optional<Integer>> responder = l -> Optional.ofNullable(l.get(0));
 
             return tryTimeout(txPollingTimeout, chargeBoxId, provideTxIds, nonEmptyFlag, responder)
-                    .orElseThrow(() -> new TransactionBlockedException(chargeBoxId, params.getIdTag(), txPollingTimeout));
+                    .orElseThrow(() -> new TransactionBlockedException(chargeBoxId, idTag, txPollingTimeout));
         }
 
-        TransactionDetails stoppedTransaction(RemoteStopTransactionParams params) throws TransactionStopException {
-            client16.remoteStopTransaction(params);
-
+        TransactionDetails stoppedTransaction(Integer transactionId) throws TransactionStopException {
             int txPollingTimeout = 5;
-            Integer transactionId = params.getTransactionId();
             Function<Integer, TransactionDetails> provideTx = transactionRepository::getDetails;
             Predicate<TransactionDetails> stopFlag = details -> details.getTransaction().getStopTimestampDT() != null;
             Function<TransactionDetails, Optional<TransactionDetails>> responder = Optional::ofNullable;
