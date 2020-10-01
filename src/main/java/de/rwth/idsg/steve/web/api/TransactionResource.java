@@ -32,9 +32,9 @@ import java.util.function.Supplier;
 @RequestMapping("/api")
 public class TransactionResource {
 
-    @Qualifier("client15")
+    @Qualifier("ChargePointService15_Client")
     private final ChargePointService15_Client client15;
-    @Qualifier("client16")
+    @Qualifier("ChargePointService16_Client")
     private final ChargePointService16_Client client16;
 
     private final TransactionRepository transactionRepository;
@@ -45,8 +45,8 @@ public class TransactionResource {
 
     private final ChargePointRepository chargePointRepository;
 
-    public TransactionResource(@Qualifier("client15") ChargePointService15_Client client15,
-                               @Qualifier("client16") ChargePointService16_Client client16,
+    public TransactionResource(@Qualifier("ChargePointService15_Client") ChargePointService15_Client client15,
+                               @Qualifier("ChargePointService16_Client") ChargePointService16_Client client16,
                                TransactionRepository transactionRepository, TransactionService transactionService,
                                ChargePointRepository chargePointRepository) {
         this.client15 = client15;
