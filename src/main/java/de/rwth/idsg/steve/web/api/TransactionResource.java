@@ -14,6 +14,7 @@ import de.rwth.idsg.steve.repository.dto.TransactionDetails;
 import de.rwth.idsg.steve.service.ChargePointService15_Client;
 import de.rwth.idsg.steve.service.ChargePointService16_Client;
 import lombok.AllArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -31,7 +32,9 @@ import java.util.function.Supplier;
 @RequestMapping("/api")
 public class TransactionResource {
 
+    @Qualifier("client15")
     private final ChargePointService15_Client client15;
+    @Qualifier("client16")
     private final ChargePointService16_Client client16;
 
     private final TransactionRepository transactionRepository;
@@ -42,7 +45,8 @@ public class TransactionResource {
 
     private final ChargePointRepository chargePointRepository;
 
-    public TransactionResource(ChargePointService15_Client client15, ChargePointService16_Client client16,
+    public TransactionResource(@Qualifier("client15") ChargePointService15_Client client15,
+                               @Qualifier("client16") ChargePointService16_Client client16,
                                TransactionRepository transactionRepository, TransactionService transactionService,
                                ChargePointRepository chargePointRepository) {
         this.client15 = client15;
