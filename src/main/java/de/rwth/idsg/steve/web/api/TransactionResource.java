@@ -15,6 +15,7 @@ import de.rwth.idsg.steve.service.ChargePointService15_Client;
 import de.rwth.idsg.steve.service.ChargePointService16_Client;
 import jooq.steve.db.tables.records.ChargeBoxRecord;
 import lombok.AllArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -30,6 +31,7 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
+@Slf4j
 @RestController
 @RequestMapping("/api")
 public class TransactionResource {
@@ -108,6 +110,7 @@ public class TransactionResource {
         try {
             transactionId = transactionService.startedTransactionId(request.chargeBoxId(), request.ocppIdTag());
         } catch (TransactionBlockedException e) {
+            log.info("Couldn't start a transaction on chargeBox: " + request.chargeBoxId(), e);
             return ResponseEntity.badRequest().body(e.getMessage());
         }
         return ResponseEntity.ok(transactionId);
