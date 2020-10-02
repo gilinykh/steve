@@ -13,6 +13,7 @@ import de.rwth.idsg.steve.repository.dto.Transaction;
 import de.rwth.idsg.steve.repository.dto.TransactionDetails;
 import de.rwth.idsg.steve.service.ChargePointService15_Client;
 import de.rwth.idsg.steve.service.ChargePointService16_Client;
+import jooq.steve.db.tables.records.ChargeBoxRecord;
 import lombok.AllArgsConstructor;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.*;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -59,12 +61,15 @@ public class TransactionResource {
         objectMapper.disable(SerializationFeature.FAIL_ON_EMPTY_BEANS);
     }
 
-    private static Runnable versionedOperation(OcppProtocol protocol, Function<OcppTransport, Integer> v15Operation, Function<OcppTransport, Integer> v16Operation) {
+    private static Runnable versionedOperation(ChargeBoxRecord chargeBoxRecord,
+                                               BiFunction<OcppTransport, String, Integer> v15Operation,
+                                               BiFunction<OcppTransport, String, Integer> v16Operation) {
+        OcppProtocol protocol = OcppProtocol.fromCompositeValue(chargeBoxRecord.getOcppProtocol());
         switch(protocol.getVersion()) {
             case V_15:
-                return () -> v15Operation.apply(protocol.getTransport());
+                return () -> v15Operation.apply(protocol.getTransport(), chargeBoxRecord.getEndpointAddress());
             case V_16:
-                return () -> v16Operation.apply(protocol.getTransport());
+                return () -> v16Operation.apply(protocol.getTransport(), chargeBoxRecord.getEndpointAddress());
             default:
                 throw new IllegalArgumentException("Unsupported OCPP protocol [" + protocol.getVersion() + protocol.getTransport() + "]");
         }
@@ -72,15 +77,15 @@ public class TransactionResource {
 
     @PostMapping("/transactions")
     public ResponseEntity<?> start(@RequestBody TransactionStartRequest request) {
-        Optional<OcppProtocol> protocol = chargeBoxOcppProtocol(request.chargeBoxId());
+        Optional<ChargeBoxRecord> chargeBox = chargeBox(request.chargeBoxId());
 
-        if (!protocol.isPresent()) {
-            return ResponseEntity.unprocessableEntity().body("Cannot evaluate OCPP protocol of charge box [" + request.chargeBoxId() + "]");
+        if (!chargeBox.isPresent()) {
+            return ResponseEntity.unprocessableEntity().body("Charge box is missing [" + request.chargeBoxId() + "]");
         }
 
-        versionedOperation(protocol.get(),
-                transport -> client15.remoteStartTransaction(request.asParams(transport)),
-                transport -> client16.remoteStartTransaction(request.asParams(transport)))
+        versionedOperation(chargeBox.get(),
+                (transport, endpointAddress) -> client15.remoteStartTransaction(request.asParams(transport, endpointAddress)),
+                (transport, endpointAddress) -> client16.remoteStartTransaction(request.asParams(transport, endpointAddress)))
                 .run();
 
         return ResponseEntity.ok().build();
@@ -89,15 +94,15 @@ public class TransactionResource {
     @PostMapping("/transactions/active")
     public ResponseEntity<?> started(@RequestBody TransactionStartRequest request) {
         int transactionId;
-        Optional<OcppProtocol> protocol = chargeBoxOcppProtocol(request.chargeBoxId());
+        Optional<ChargeBoxRecord> chargeBox = chargeBox(request.chargeBoxId());
 
-        if (!protocol.isPresent()) {
-            return ResponseEntity.unprocessableEntity().body("Cannot evaluate OCPP protocol of charge box [" + request.chargeBoxId() + "]");
+        if (!chargeBox.isPresent()) {
+            return ResponseEntity.unprocessableEntity().body("Charge box is missing [" + request.chargeBoxId() + "]");
         }
 
-        versionedOperation(protocol.get(),
-                transport -> client15.remoteStartTransaction(request.asParams(transport)),
-                transport -> client16.remoteStartTransaction(request.asParams(transport)))
+        versionedOperation(chargeBox.get(),
+                (transport, endpointAddress) -> client15.remoteStartTransaction(request.asParams(transport, endpointAddress)),
+                (transport, endpointAddress) -> client16.remoteStartTransaction(request.asParams(transport, endpointAddress)))
                 .run();
 
         try {
@@ -127,15 +132,15 @@ public class TransactionResource {
 
     @DeleteMapping("/transactions")
     public ResponseEntity<?> stop(@RequestBody TransactionStopRequest request) {
-        Optional<OcppProtocol> protocol = chargeBoxOcppProtocol(request.chargeBoxId());
+        Optional<ChargeBoxRecord> chargeBox = chargeBox(request.chargeBoxId());
 
-        if (!protocol.isPresent()) {
-            return ResponseEntity.unprocessableEntity().body("Cannot evaluate OCPP protocol of charge box [" + request.chargeBoxId() + "]");
+        if (!chargeBox.isPresent()) {
+            return ResponseEntity.unprocessableEntity().body("Charge box is missing [" + request.chargeBoxId() + "]");
         }
 
-        versionedOperation(protocol.get(),
-                transport -> client15.remoteStopTransaction(request.asParams(transport)),
-                transport -> client16.remoteStopTransaction(request.asParams(transport)))
+        versionedOperation(chargeBox.get(),
+                (transport, endpointAddress) -> client15.remoteStopTransaction(request.asParams(transport, endpointAddress)),
+                (transport, endpointAddress) -> client16.remoteStopTransaction(request.asParams(transport, endpointAddress)))
                 .run();
 
         return ResponseEntity.noContent().build();
@@ -143,17 +148,17 @@ public class TransactionResource {
 
     @DeleteMapping(value = "/transactions/{transactionId}", produces = {MediaType.APPLICATION_JSON_VALUE})
     public ResponseEntity<?> stop2(@PathVariable Integer transactionId, @RequestParam("chargeBoxId") String chargeBoxId) throws JsonProcessingException {
-        TransactionStopRequest request = new TransactionStopRequest(transactionId, chargeBoxId, null);
+        TransactionStopRequest request = new TransactionStopRequest(transactionId, chargeBoxId);
         TransactionDetails transactionDetails;
-        Optional<OcppProtocol> protocol = chargeBoxOcppProtocol(request.chargeBoxId());
+        Optional<ChargeBoxRecord> chargeBox = chargeBox(request.chargeBoxId());
 
-        if (!protocol.isPresent()) {
-            return ResponseEntity.unprocessableEntity().body("Cannot evaluate OCPP protocol of charge box [" + request.chargeBoxId() + "]");
+        if (!chargeBox.isPresent()) {
+            return ResponseEntity.unprocessableEntity().body("Charge box is missing [" + request.chargeBoxId() + "]");
         }
 
-        versionedOperation(protocol.get(),
-                transport -> client15.remoteStopTransaction(request.asParams(transport)),
-                transport -> client16.remoteStopTransaction(request.asParams(transport)))
+        versionedOperation(chargeBox.get(),
+                (transport, endpointAddress) -> client15.remoteStopTransaction(request.asParams(transport, endpointAddress)),
+                (transport, endpointAddress) -> client16.remoteStopTransaction(request.asParams(transport, endpointAddress)))
                 .run();
 
         try {
@@ -169,7 +174,7 @@ public class TransactionResource {
         return stop(request);
     }
 
-    private Optional<OcppProtocol> chargeBoxOcppProtocol(String chargeBoxId) {
+    private Optional<ChargeBoxRecord> chargeBox(String chargeBoxId) {
         Integer chargeBoxPk = chargePointRepository.getChargeBoxIdPkPair(List.of(chargeBoxId)).get(chargeBoxId);
 
         if (chargeBoxPk == null) {
@@ -177,7 +182,7 @@ public class TransactionResource {
         }
 
         ChargePoint.Details details = chargePointRepository.getDetails(chargeBoxPk);
-        return Optional.of(OcppProtocol.fromCompositeValue(details.getChargeBox().getOcppProtocol()));
+        return Optional.of(details.getChargeBox());
     }
 
     @Service
@@ -209,7 +214,7 @@ public class TransactionResource {
         // derives from it entity <E>
         // tests it to match a condition
         // responds with response <R>
-        private <E, P, R> Optional<R> tryTimeout(int timeoutSec, P input, Function<P, E> provider, Predicate<E> condition, Function<E, Optional<R>> responder) {
+        private static <E, P, R> Optional<R> tryTimeout(int timeoutSec, P input, Function<P, E> provider, Predicate<E> condition, Function<E, Optional<R>> responder) {
             Supplier<Long> nowMillis = () -> Instant.now().toEpochMilli();
             long startMillis = nowMillis.get();
             long currentMillis = startMillis;
