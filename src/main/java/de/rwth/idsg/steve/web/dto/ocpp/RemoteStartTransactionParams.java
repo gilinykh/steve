@@ -13,7 +13,7 @@ import javax.validation.constraints.NotBlank;
  * @since 01.01.2015
  */
 @Getter
-@ToString
+@ToString(callSuper = true)
 public class RemoteStartTransactionParams extends SingleChargePointSelect {
 
     @Min(value = 0, message = "Connector ID must be at least {value}")
