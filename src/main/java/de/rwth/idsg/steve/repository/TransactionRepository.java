@@ -15,6 +15,7 @@ public interface TransactionRepository {
     List<Transaction> getTransactions(TransactionQueryForm form);
     void writeTransactionsCSV(TransactionQueryForm form, Writer writer);
     List<Integer> getActiveTransactionIds(String chargeBoxId);
+    List<Integer> getActiveTransactionIds();
     TransactionDetails getDetails(int transactionPk, boolean firstArrivingMeterValueIfMultiple);
 
     default TransactionDetails getDetails(int transactionPk) {

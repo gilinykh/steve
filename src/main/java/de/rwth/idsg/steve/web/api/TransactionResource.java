@@ -24,6 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.BiFunction;
@@ -131,6 +132,17 @@ public class TransactionResource {
     public ResponseEntity<?> transactionDetailsNullable(@PathVariable Integer transactionId) throws JsonProcessingException {
         TransactionDetails transactionDetails = transactionRepository.getDetails(transactionId);
         return ResponseEntity.ok(objectMapper.writeValueAsString(transactionDetails));
+    }
+
+    @GetMapping(value = "/transactions/active")
+    public ResponseEntity<?> activeTransactionDetails() throws JsonProcessingException {
+        List<Integer> activeTransactionIds = transactionRepository.getActiveTransactionIds();
+        List<TransactionDetails> result = new ArrayList();
+        for(Integer txId: activeTransactionIds) {
+            result.add(transactionRepository.getDetails(txId));
+        }
+
+        return ResponseEntity.ok(result);
     }
 
     @DeleteMapping("/transactions")
