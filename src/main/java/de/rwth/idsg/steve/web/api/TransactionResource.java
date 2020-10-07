@@ -20,7 +20,7 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.joda.time.DateTime;
-import org.joda.time.format.DateTimeFormat;
+import org.joda.time.format.ISODateTimeFormat;
 import org.jooq.DSLContext;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
@@ -311,7 +311,7 @@ public class TransactionResource {
 
         ChargePointStatusRepresentation(String chargeBoxId, DateTime lastHeartbeat, Collection<ConnectorStatusRepresentation> connectors) {
             this.chargeBoxId = chargeBoxId;
-            this.lastHeartbeat = lastHeartbeat.toString(DateTimeFormat.fullDateTime());
+            this.lastHeartbeat = lastHeartbeat.toString(ISODateTimeFormat.dateTime());
             this.connectors = connectors;
         }
     }
