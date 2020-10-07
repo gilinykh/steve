@@ -20,6 +20,7 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.joda.time.DateTime;
+import org.joda.time.format.DateTimeFormat;
 import org.jooq.DSLContext;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
@@ -39,6 +40,7 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
+import static java.util.stream.Collectors.toList;
 import static jooq.steve.db.tables.Connector.CONNECTOR;
 import static jooq.steve.db.tables.Transaction.TRANSACTION;
 
@@ -223,7 +225,10 @@ public class TransactionResource {
         List<ConnectorStatus> connectorStatuses = chargePointRepository.getChargePointConnectorStatus(query);
 
         return ResponseEntity.ok(new ChargePointStatusRepresentation(chargeBoxId,
-                chargeBox.get().getLastHeartbeatTimestamp(), connectorStatuses));
+                chargeBox.get().getLastHeartbeatTimestamp(),
+                connectorStatuses.stream()
+                        .map(cs -> new ConnectorStatusRepresentation(cs.getConnectorId(), cs.getChargeBoxId(), cs.getStatus(), cs.getErrorCode()))
+                        .collect(toList())));
     }
 
     @Service
@@ -301,13 +306,28 @@ public class TransactionResource {
     @Getter
     static class ChargePointStatusRepresentation {
         private final String chargeBoxId;
-        private final DateTime lastHeartbeat;
-        private final Collection<ConnectorStatus> connectors;
+        private final String lastHeartbeat;
+        private final Collection<ConnectorStatusRepresentation> connectors;
 
-        ChargePointStatusRepresentation(String chargeBoxId, DateTime lastHeartbeat, Collection<ConnectorStatus> connectors) {
+        ChargePointStatusRepresentation(String chargeBoxId, DateTime lastHeartbeat, Collection<ConnectorStatusRepresentation> connectors) {
             this.chargeBoxId = chargeBoxId;
-            this.lastHeartbeat = lastHeartbeat;
+            this.lastHeartbeat = lastHeartbeat.toString(DateTimeFormat.fullDateTime());
             this.connectors = connectors;
+        }
+    }
+
+    @Getter
+    static class ConnectorStatusRepresentation {
+        private final int connectorId;
+        private final String chargeBoxId;
+        private final String status;
+        private final String errorCode;
+
+        ConnectorStatusRepresentation(int connectorId, String chargeBoxId, String status, String errorCode) {
+            this.connectorId = connectorId;
+            this.chargeBoxId = chargeBoxId;
+            this.status = status;
+            this.errorCode = errorCode;
         }
     }
 }
