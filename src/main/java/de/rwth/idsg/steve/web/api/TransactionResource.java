@@ -9,13 +9,17 @@ import de.rwth.idsg.steve.ocpp.OcppTransport;
 import de.rwth.idsg.steve.repository.ChargePointRepository;
 import de.rwth.idsg.steve.repository.TransactionRepository;
 import de.rwth.idsg.steve.repository.dto.ChargePoint;
+import de.rwth.idsg.steve.repository.dto.ConnectorStatus;
 import de.rwth.idsg.steve.repository.dto.Transaction;
 import de.rwth.idsg.steve.repository.dto.TransactionDetails;
 import de.rwth.idsg.steve.service.ChargePointService15_Client;
 import de.rwth.idsg.steve.service.ChargePointService16_Client;
+import de.rwth.idsg.steve.web.dto.ConnectorStatusForm;
 import jooq.steve.db.tables.records.ChargeBoxRecord;
 import lombok.AllArgsConstructor;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import org.joda.time.DateTime;
 import org.jooq.DSLContext;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
@@ -27,6 +31,7 @@ import org.springframework.web.bind.annotation.*;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.BiFunction;
@@ -205,6 +210,22 @@ public class TransactionResource {
         return Optional.of(details.getChargeBox());
     }
 
+    @GetMapping("/charge-points/{chargeBoxId}/status")
+    public ResponseEntity<?> chargePointStatus(@PathVariable("chargeBoxId") String chargeBoxId) {
+        Optional<ChargeBoxRecord> chargeBox = chargeBox(chargeBoxId);
+
+        if (!chargeBox.isPresent()) {
+            return ResponseEntity.unprocessableEntity().body("Charge point is missing [" + chargeBoxId + "]");
+        }
+
+        ConnectorStatusForm query = new ConnectorStatusForm();
+        query.setChargeBoxId(chargeBoxId);
+        List<ConnectorStatus> connectorStatuses = chargePointRepository.getChargePointConnectorStatus(query);
+
+        return ResponseEntity.ok(new ChargePointStatusRepresentation(chargeBoxId,
+                chargeBox.get().getLastHeartbeatTimestamp(), connectorStatuses));
+    }
+
     @Service
     @AllArgsConstructor
     static class TransactionService {
@@ -274,6 +295,19 @@ public class TransactionResource {
     static class TransactionStopException extends Exception {
         public TransactionStopException(Integer transactionId, long timeout) {
             super("Transaction [" + transactionId + "] didn't finish within [" + timeout + "] seconds interval.");
+        }
+    }
+
+    @Getter
+    static class ChargePointStatusRepresentation {
+        private final String chargeBoxId;
+        private final DateTime lastHeartbeat;
+        private final Collection<ConnectorStatus> connectors;
+
+        ChargePointStatusRepresentation(String chargeBoxId, DateTime lastHeartbeat, Collection<ConnectorStatus> connectors) {
+            this.chargeBoxId = chargeBoxId;
+            this.lastHeartbeat = lastHeartbeat;
+            this.connectors = connectors;
         }
     }
 }
