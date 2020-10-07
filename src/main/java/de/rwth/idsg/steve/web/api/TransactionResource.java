@@ -16,6 +16,7 @@ import de.rwth.idsg.steve.service.ChargePointService16_Client;
 import jooq.steve.db.tables.records.ChargeBoxRecord;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jooq.DSLContext;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -23,6 +24,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -31,6 +33,9 @@ import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+
+import static jooq.steve.db.tables.Connector.CONNECTOR;
+import static jooq.steve.db.tables.Transaction.TRANSACTION;
 
 @Slf4j
 @RestController
@@ -109,7 +114,7 @@ public class TransactionResource {
                 .run();
 
         try {
-            transactionId = transactionService.startedTransactionId(request.chargeBoxId(), request.ocppIdTag());
+            transactionId = transactionService.pollStartedTransactionId(request.chargeBoxId(), request.ocppIdTag(), request.connectorId());
         } catch (TransactionBlockedException e) {
             log.info("Couldn't start a transaction on chargeBox: " + request.chargeBoxId(), e);
             return ResponseEntity.badRequest().body(e.getMessage());
@@ -177,7 +182,7 @@ public class TransactionResource {
                 .run();
 
         try {
-            transactionDetails = transactionService.stoppedTransaction(transactionId);
+            transactionDetails = transactionService.pollStoppedTransaction(transactionId);
         } catch (TransactionStopException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
@@ -204,42 +209,52 @@ public class TransactionResource {
     @AllArgsConstructor
     static class TransactionService {
         private final TransactionRepository transactionRepository;
+        private final DSLContext dsl;
 
-        int startedTransactionId(String chargeBoxId, String idTag) throws TransactionBlockedException {
-            int txPollingTimeout = 5;
-            Function<String, List<Integer>> provideTxIds = transactionRepository::getActiveTransactionIds;
+        int pollStartedTransactionId(String chargeBoxId, String idTag, int connectorId) throws TransactionBlockedException {
+            Duration pollDuration = Duration.ofSeconds(5);
             Predicate<List<Integer>> nonEmptyFlag = Predicate.not(List::isEmpty);
-            Function<List<Integer>, Optional<Integer>> responder = l -> Optional.ofNullable(l.get(0));
+            Function<List<Integer>, Optional<Integer>> mapResult = l -> Optional.ofNullable(l.get(0));
+            Supplier<List<Integer>> source = () -> getActiveTransactionIds(chargeBoxId, connectorId);
 
-            return tryTimeout(txPollingTimeout, chargeBoxId, provideTxIds, nonEmptyFlag, responder)
-                    .orElseThrow(() -> new TransactionBlockedException(chargeBoxId, idTag, txPollingTimeout));
+            return timedPoll(source, pollDuration, nonEmptyFlag, mapResult)
+                    .orElseThrow(() -> new TransactionBlockedException(chargeBoxId, idTag, pollDuration.toSeconds()));
         }
 
-        TransactionDetails stoppedTransaction(Integer transactionId) throws TransactionStopException {
-            int txPollingTimeout = 5;
-            Function<Integer, TransactionDetails> provideTx = transactionRepository::getDetails;
+        private List<Integer> getActiveTransactionIds(String chargeBoxId, Integer connectorId) {
+            return dsl.select(TRANSACTION.TRANSACTION_PK)
+                    .from(TRANSACTION)
+                    .join(CONNECTOR)
+                    .on(TRANSACTION.CONNECTOR_PK.equal(CONNECTOR.CONNECTOR_PK))
+                    .and(CONNECTOR.CHARGE_BOX_ID.equal(chargeBoxId)).and(CONNECTOR.CONNECTOR_ID.eq(connectorId))
+                    .where(TRANSACTION.STOP_TIMESTAMP.isNull())
+                    .fetch(TRANSACTION.TRANSACTION_PK);
+        }
+
+        TransactionDetails pollStoppedTransaction(Integer transactionId) throws TransactionStopException {
+            Duration pollDuration = Duration.ofSeconds(5);
             Predicate<TransactionDetails> stopFlag = details -> details.getTransaction().getStopTimestampDT() != null;
-            Function<TransactionDetails, Optional<TransactionDetails>> responder = Optional::ofNullable;
+            Function<TransactionDetails, Optional<TransactionDetails>> mapResult = Optional::ofNullable;
+            Supplier<TransactionDetails> source = () -> transactionRepository.getDetails(transactionId);
 
-            return tryTimeout(txPollingTimeout, transactionId, provideTx, stopFlag, responder)
-                    .orElseThrow(() -> new TransactionStopException(transactionId, txPollingTimeout));
+            return timedPoll(source, pollDuration, stopFlag, mapResult)
+                    .orElseThrow(() -> new TransactionStopException(transactionId, pollDuration.toSeconds()));
         }
 
-        // accepts param <P>
-        // derives from it entity <E>
-        // tests it to match a condition
-        // responds with response <R>
-        private static <E, P, R> Optional<R> tryTimeout(int timeoutSec, P input, Function<P, E> provider, Predicate<E> condition, Function<E, Optional<R>> responder) {
+        // repeatedly polls <E> from {@param source} for {@param pollDuration}
+        // until it matches the {@param condition}
+        // maps it to return type with {@param mapResult}
+        private static <E, R> Optional<R> timedPoll(Supplier<E> source, Duration duration, Predicate<E> condition, Function<E, Optional<R>> mapResult) {
             Supplier<Long> nowMillis = () -> Instant.now().toEpochMilli();
             long startMillis = nowMillis.get();
             long currentMillis = startMillis;
-            E entity;
+            E result;
 
-            while(currentMillis < startMillis + timeoutSec * 1000) {
-                entity = provider.apply(input);
+            while(currentMillis < duration.plusMillis(startMillis).toMillis()) {
+                result = source.get();
 
-                if (condition.test(entity)) {
-                    return responder.apply(entity);
+                if (condition.test(result)) {
+                    return mapResult.apply(result);
                 }
                 currentMillis = nowMillis.get();
             }
@@ -250,14 +265,14 @@ public class TransactionResource {
 
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     static class TransactionBlockedException extends Exception {
-        TransactionBlockedException(String chargeBoxId, String idTag, int timeout) {
+        TransactionBlockedException(String chargeBoxId, String idTag, long timeout) {
             super("Transaction hasn't been started within [" + timeout + "] seconds interval for IdTag [" + idTag + "] with ChargingPoint [" + chargeBoxId + "]");
         }
     }
 
     @ResponseStatus(HttpStatus.CONFLICT)
     static class TransactionStopException extends Exception {
-        public TransactionStopException(Integer transactionId, int timeout) {
+        public TransactionStopException(Integer transactionId, long timeout) {
             super("Transaction [" + transactionId + "] didn't finish within [" + timeout + "] seconds interval.");
         }
     }
