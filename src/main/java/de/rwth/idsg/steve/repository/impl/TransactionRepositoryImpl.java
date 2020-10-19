@@ -91,6 +91,14 @@ public class TransactionRepositoryImpl implements TransactionRepository {
     }
 
     @Override
+    public List<Integer> getActiveTransactionIds() {
+        return ctx.select(TRANSACTION.TRANSACTION_PK)
+                .from(TRANSACTION)
+                .where(TRANSACTION.STOP_TIMESTAMP.isNull())
+                .fetch(TRANSACTION.TRANSACTION_PK);
+    }
+
+    @Override
     public TransactionDetails getDetails(int transactionPk, boolean firstArrivingMeterValueIfMultiple) {
 
         // -------------------------------------------------------------------------

@@ -16,21 +16,18 @@ public class TransactionStopRequest {
 
     private final Integer transactionId;
     private final String chargeBoxId;
-    private final String endpointAddress;
 
     @JsonCreator
     public TransactionStopRequest(@JsonProperty("transactionId") Integer transactionId,
-                                  @JsonProperty("chargeBoxId") String chargeBoxId,
-                                  @JsonProperty("endpointAddress") String endpointAddress) {
+                                  @JsonProperty("chargeBoxId") String chargeBoxId) {
         this.transactionId = transactionId;
         this.chargeBoxId = chargeBoxId;
-        this.endpointAddress = endpointAddress;
     }
 
-    public RemoteStopTransactionParams asParams() {
+    public RemoteStopTransactionParams asParams(OcppTransport transport, String endpointAddress) {
         RemoteStopTransactionParams params = new RemoteStopTransactionParams();
         params.setTransactionId(transactionId());
-        params.setChargePointSelectList(Arrays.asList(new ChargePointSelect(OcppTransport.JSON, chargeBoxId(), endpointAddress())));
+        params.setChargePointSelectList(Arrays.asList(new ChargePointSelect(transport, chargeBoxId(), endpointAddress)));
         return params;
     }
 }

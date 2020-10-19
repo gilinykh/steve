@@ -20,6 +20,7 @@ package de.rwth.idsg.steve.ocpp;
 
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import lombok.ToString;
 
 /**
  * @author Sevket Goekay <goekay@dbis.rwth-aachen.de>
@@ -27,6 +28,7 @@ import lombok.RequiredArgsConstructor;
  */
 @RequiredArgsConstructor
 @Getter
+@ToString
 public enum OcppTransport {
     SOAP("S"),  // HTTP with SOAP payloads
     JSON("J");  // WebSocket with JSON payloads

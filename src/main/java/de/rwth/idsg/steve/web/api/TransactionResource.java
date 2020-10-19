@@ -4,30 +4,54 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import de.rwth.idsg.steve.ocpp.OcppProtocol;
+import de.rwth.idsg.steve.ocpp.OcppTransport;
+import de.rwth.idsg.steve.repository.ChargePointRepository;
 import de.rwth.idsg.steve.repository.TransactionRepository;
+import de.rwth.idsg.steve.repository.dto.ChargePoint;
+import de.rwth.idsg.steve.repository.dto.ConnectorStatus;
 import de.rwth.idsg.steve.repository.dto.Transaction;
 import de.rwth.idsg.steve.repository.dto.TransactionDetails;
+import de.rwth.idsg.steve.service.ChargePointService15_Client;
 import de.rwth.idsg.steve.service.ChargePointService16_Client;
-import de.rwth.idsg.steve.web.dto.ocpp.RemoteStartTransactionParams;
-import de.rwth.idsg.steve.web.dto.ocpp.RemoteStopTransactionParams;
+import de.rwth.idsg.steve.web.dto.ConnectorStatusForm;
+import jooq.steve.db.tables.records.ChargeBoxRecord;
 import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
+import org.joda.time.DateTime;
+import org.joda.time.format.ISODateTimeFormat;
+import org.jooq.DSLContext;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
+import static java.util.stream.Collectors.toList;
+import static jooq.steve.db.tables.Connector.CONNECTOR;
+import static jooq.steve.db.tables.Transaction.TRANSACTION;
+
+@Slf4j
 @RestController
 @RequestMapping("/api")
 public class TransactionResource {
 
+    @Qualifier("ChargePointService15_Client")
+    private final ChargePointService15_Client client15;
+    @Qualifier("ChargePointService16_Client")
     private final ChargePointService16_Client client16;
 
     private final TransactionRepository transactionRepository;
@@ -36,27 +60,70 @@ public class TransactionResource {
 
     private final ObjectMapper objectMapper;
 
-    public TransactionResource(ChargePointService16_Client client16, TransactionRepository transactionRepository, TransactionService transactionService) {
+    private final ChargePointRepository chargePointRepository;
+
+    public TransactionResource(@Qualifier("ChargePointService15_Client") ChargePointService15_Client client15,
+                               @Qualifier("ChargePointService16_Client") ChargePointService16_Client client16,
+                               TransactionRepository transactionRepository, TransactionService transactionService,
+                               ChargePointRepository chargePointRepository) {
+        this.client15 = client15;
         this.client16 = client16;
         this.transactionRepository = transactionRepository;
         this.transactionService = transactionService;
+        this.chargePointRepository = chargePointRepository;
         this.objectMapper = new ObjectMapper();
         objectMapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
         objectMapper.disable(SerializationFeature.FAIL_ON_EMPTY_BEANS);
     }
 
+    private static Runnable versionedOperation(ChargeBoxRecord chargeBoxRecord,
+                                               BiFunction<OcppTransport, String, Integer> v15Operation,
+                                               BiFunction<OcppTransport, String, Integer> v16Operation) {
+        OcppProtocol protocol = OcppProtocol.fromCompositeValue(chargeBoxRecord.getOcppProtocol());
+        switch(protocol.getVersion()) {
+            case V_15:
+                return () -> v15Operation.apply(protocol.getTransport(), chargeBoxRecord.getEndpointAddress());
+            case V_16:
+                return () -> v16Operation.apply(protocol.getTransport(), chargeBoxRecord.getEndpointAddress());
+            default:
+                throw new IllegalArgumentException("Unsupported OCPP protocol [" + protocol.getVersion() + protocol.getTransport() + "]");
+        }
+    }
+
     @PostMapping("/transactions")
-    public ResponseEntity<Void> start(@RequestBody TransactionStartRequest request) {
-        client16.remoteStartTransaction(request.asParams());
+    public ResponseEntity<?> start(@RequestBody TransactionStartRequest request) {
+        Optional<ChargeBoxRecord> chargeBox = chargeBox(request.chargeBoxId());
+
+        if (!chargeBox.isPresent()) {
+            return ResponseEntity.unprocessableEntity().body("Charge box is missing [" + request.chargeBoxId() + "]");
+        }
+
+        versionedOperation(chargeBox.get(),
+                (transport, endpointAddress) -> client15.remoteStartTransaction(request.asParams(transport, endpointAddress)),
+                (transport, endpointAddress) -> client16.remoteStartTransaction(request.asParams(transport, endpointAddress)))
+                .run();
+
         return ResponseEntity.ok().build();
     }
 
     @PostMapping("/transactions/active")
-    public ResponseEntity started(@RequestBody TransactionStartRequest request) {
-        Integer transactionId = null;
+    public ResponseEntity<?> started(@RequestBody TransactionStartRequest request) {
+        int transactionId;
+        Optional<ChargeBoxRecord> chargeBox = chargeBox(request.chargeBoxId());
+
+        if (!chargeBox.isPresent()) {
+            return ResponseEntity.unprocessableEntity().body("Charge box is missing [" + request.chargeBoxId() + "]");
+        }
+
+        versionedOperation(chargeBox.get(),
+                (transport, endpointAddress) -> client15.remoteStartTransaction(request.asParams(transport, endpointAddress)),
+                (transport, endpointAddress) -> client16.remoteStartTransaction(request.asParams(transport, endpointAddress)))
+                .run();
+
         try {
-            transactionId = transactionService.startedTransactionId(request.asParams());
+            transactionId = transactionService.pollStartedTransactionId(request.chargeBoxId(), request.ocppIdTag(), request.connectorId());
         } catch (TransactionBlockedException e) {
+            log.info("Couldn't start a transaction on chargeBox: " + request.chargeBoxId(), e);
             return ResponseEntity.badRequest().body(e.getMessage());
         }
         return ResponseEntity.ok(transactionId);
@@ -74,23 +141,55 @@ public class TransactionResource {
     }
 
     @GetMapping(value = "/transactions/{transactionId}/nullable", produces = {MediaType.APPLICATION_JSON_VALUE})
-    public ResponseEntity transactionDetailsNullable(@PathVariable Integer transactionId) throws JsonProcessingException {
+    public ResponseEntity<?> transactionDetailsNullable(@PathVariable Integer transactionId) throws JsonProcessingException {
         TransactionDetails transactionDetails = transactionRepository.getDetails(transactionId);
         return ResponseEntity.ok(objectMapper.writeValueAsString(transactionDetails));
     }
 
+    @GetMapping(value = "/transactions/active")
+    public ResponseEntity<?> activeTransactionDetails() throws JsonProcessingException {
+        List<Integer> activeTransactionIds = transactionRepository.getActiveTransactionIds();
+        List<TransactionDetails> result = new ArrayList();
+        for(Integer txId: activeTransactionIds) {
+            result.add(transactionRepository.getDetails(txId));
+        }
+
+        return ResponseEntity.ok(result);
+    }
+
     @DeleteMapping("/transactions")
-    public ResponseEntity<Void> stop(@RequestBody TransactionStopRequest request) {
-        client16.remoteStopTransaction(request.asParams());
+    public ResponseEntity<?> stop(@RequestBody TransactionStopRequest request) {
+        Optional<ChargeBoxRecord> chargeBox = chargeBox(request.chargeBoxId());
+
+        if (!chargeBox.isPresent()) {
+            return ResponseEntity.unprocessableEntity().body("Charge box is missing [" + request.chargeBoxId() + "]");
+        }
+
+        versionedOperation(chargeBox.get(),
+                (transport, endpointAddress) -> client15.remoteStopTransaction(request.asParams(transport, endpointAddress)),
+                (transport, endpointAddress) -> client16.remoteStopTransaction(request.asParams(transport, endpointAddress)))
+                .run();
+
         return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping(value = "/transactions/{transactionId}", produces = {MediaType.APPLICATION_JSON_VALUE})
-    public ResponseEntity stop2(@PathVariable Integer transactionId, @RequestParam("chargeBoxId") String chargeBoxId) throws JsonProcessingException {
-        TransactionStopRequest request = new TransactionStopRequest(transactionId, chargeBoxId, null);
+    public ResponseEntity<?> stop2(@PathVariable Integer transactionId, @RequestParam("chargeBoxId") String chargeBoxId) throws JsonProcessingException {
+        TransactionStopRequest request = new TransactionStopRequest(transactionId, chargeBoxId);
         TransactionDetails transactionDetails;
+        Optional<ChargeBoxRecord> chargeBox = chargeBox(request.chargeBoxId());
+
+        if (!chargeBox.isPresent()) {
+            return ResponseEntity.unprocessableEntity().body("Charge box is missing [" + request.chargeBoxId() + "]");
+        }
+
+        versionedOperation(chargeBox.get(),
+                (transport, endpointAddress) -> client15.remoteStopTransaction(request.asParams(transport, endpointAddress)),
+                (transport, endpointAddress) -> client16.remoteStopTransaction(request.asParams(transport, endpointAddress)))
+                .run();
+
         try {
-            transactionDetails = transactionService.stoppedTransaction(request.asParams());
+            transactionDetails = transactionService.pollStoppedTransaction(transactionId);
         } catch (TransactionStopException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
@@ -98,58 +197,90 @@ public class TransactionResource {
     }
 
     @PutMapping("/transactions")
-    public ResponseEntity<Void> stop3(@RequestBody TransactionStopRequest request) {
-        client16.remoteStopTransaction(request.asParams());
-        return ResponseEntity.noContent().build();
+    public ResponseEntity<?> stop3(@RequestBody TransactionStopRequest request) {
+        return stop(request);
+    }
+
+    private Optional<ChargeBoxRecord> chargeBox(String chargeBoxId) {
+        Integer chargeBoxPk = chargePointRepository.getChargeBoxIdPkPair(List.of(chargeBoxId)).get(chargeBoxId);
+
+        if (chargeBoxPk == null) {
+            return Optional.empty();
+        }
+
+        ChargePoint.Details details = chargePointRepository.getDetails(chargeBoxPk);
+        return Optional.of(details.getChargeBox());
+    }
+
+    @GetMapping("/charge-points/{chargeBoxId}/status")
+    public ResponseEntity<?> chargePointStatus(@PathVariable("chargeBoxId") String chargeBoxId) {
+        Optional<ChargeBoxRecord> chargeBox = chargeBox(chargeBoxId);
+
+        if (!chargeBox.isPresent()) {
+            return ResponseEntity.unprocessableEntity().body("Charge point is missing [" + chargeBoxId + "]");
+        }
+
+        ConnectorStatusForm query = new ConnectorStatusForm();
+        query.setChargeBoxId(chargeBoxId);
+        List<ConnectorStatus> connectorStatuses = chargePointRepository.getChargePointConnectorStatus(query);
+
+        return ResponseEntity.ok(new ChargePointStatusRepresentation(chargeBoxId,
+                chargeBox.get().getLastHeartbeatTimestamp(),
+                connectorStatuses.stream()
+                        .map(cs -> new ConnectorStatusRepresentation(cs.getConnectorId(), cs.getChargeBoxId(), cs.getStatus(), cs.getErrorCode()))
+                        .collect(toList())));
     }
 
     @Service
     @AllArgsConstructor
     static class TransactionService {
-        private final ChargePointService16_Client client16;
         private final TransactionRepository transactionRepository;
+        private final DSLContext dsl;
 
-        int startedTransactionId(RemoteStartTransactionParams params) throws TransactionBlockedException {
-            client16.remoteStartTransaction(params);
-
-            int txPollingTimeout = 5;
-            String chargeBoxId = params.getChargePointSelectList().get(0).getChargeBoxId();
-            Function<String, List<Integer>> provideTxIds = transactionRepository::getActiveTransactionIds;
+        int pollStartedTransactionId(String chargeBoxId, String idTag, int connectorId) throws TransactionBlockedException {
+            Duration pollDuration = Duration.ofSeconds(5);
             Predicate<List<Integer>> nonEmptyFlag = Predicate.not(List::isEmpty);
-            Function<List<Integer>, Optional<Integer>> responder = l -> Optional.ofNullable(l.get(0));
+            Function<List<Integer>, Optional<Integer>> mapResult = l -> Optional.ofNullable(l.get(0));
+            Supplier<List<Integer>> source = () -> getActiveTransactionIds(chargeBoxId, connectorId);
 
-            return tryTimeout(txPollingTimeout, chargeBoxId, provideTxIds, nonEmptyFlag, responder)
-                    .orElseThrow(() -> new TransactionBlockedException(chargeBoxId, params.getIdTag(), txPollingTimeout));
+            return timedPoll(source, pollDuration, nonEmptyFlag, mapResult)
+                    .orElseThrow(() -> new TransactionBlockedException(chargeBoxId, idTag, pollDuration.toSeconds()));
         }
 
-        TransactionDetails stoppedTransaction(RemoteStopTransactionParams params) throws TransactionStopException {
-            client16.remoteStopTransaction(params);
+        private List<Integer> getActiveTransactionIds(String chargeBoxId, Integer connectorId) {
+            return dsl.select(TRANSACTION.TRANSACTION_PK)
+                    .from(TRANSACTION)
+                    .join(CONNECTOR)
+                    .on(TRANSACTION.CONNECTOR_PK.equal(CONNECTOR.CONNECTOR_PK))
+                    .and(CONNECTOR.CHARGE_BOX_ID.equal(chargeBoxId)).and(CONNECTOR.CONNECTOR_ID.eq(connectorId))
+                    .where(TRANSACTION.STOP_TIMESTAMP.isNull())
+                    .fetch(TRANSACTION.TRANSACTION_PK);
+        }
 
-            int txPollingTimeout = 5;
-            Integer transactionId = params.getTransactionId();
-            Function<Integer, TransactionDetails> provideTx = transactionRepository::getDetails;
+        TransactionDetails pollStoppedTransaction(Integer transactionId) throws TransactionStopException {
+            Duration pollDuration = Duration.ofSeconds(5);
             Predicate<TransactionDetails> stopFlag = details -> details.getTransaction().getStopTimestampDT() != null;
-            Function<TransactionDetails, Optional<TransactionDetails>> responder = Optional::ofNullable;
+            Function<TransactionDetails, Optional<TransactionDetails>> mapResult = Optional::ofNullable;
+            Supplier<TransactionDetails> source = () -> transactionRepository.getDetails(transactionId);
 
-            return tryTimeout(txPollingTimeout, transactionId, provideTx, stopFlag, responder)
-                    .orElseThrow(() -> new TransactionStopException(transactionId, txPollingTimeout));
+            return timedPoll(source, pollDuration, stopFlag, mapResult)
+                    .orElseThrow(() -> new TransactionStopException(transactionId, pollDuration.toSeconds()));
         }
 
-        // accepts param <P>
-        // derives from it entity <E>
-        // tests it to match a condition
-        // responds with response <R>
-        private <E, P, R> Optional<R> tryTimeout(int timeoutSec, P input, Function<P, E> provider, Predicate<E> condition, Function<E, Optional<R>> responder) {
+        // repeatedly polls <E> from {@param source} for {@param pollDuration}
+        // until it matches the {@param condition}
+        // maps it to return type with {@param mapResult}
+        private static <E, R> Optional<R> timedPoll(Supplier<E> source, Duration duration, Predicate<E> condition, Function<E, Optional<R>> mapResult) {
             Supplier<Long> nowMillis = () -> Instant.now().toEpochMilli();
             long startMillis = nowMillis.get();
             long currentMillis = startMillis;
-            E entity;
+            E result;
 
-            while(currentMillis < startMillis + timeoutSec * 1000) {
-                entity = provider.apply(input);
+            while(currentMillis < duration.plusMillis(startMillis).toMillis()) {
+                result = source.get();
 
-                if (condition.test(entity)) {
-                    return responder.apply(entity);
+                if (condition.test(result)) {
+                    return mapResult.apply(result);
                 }
                 currentMillis = nowMillis.get();
             }
@@ -160,15 +291,43 @@ public class TransactionResource {
 
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     static class TransactionBlockedException extends Exception {
-        TransactionBlockedException(String chargeBoxId, String idTag, int timeout) {
+        TransactionBlockedException(String chargeBoxId, String idTag, long timeout) {
             super("Transaction hasn't been started within [" + timeout + "] seconds interval for IdTag [" + idTag + "] with ChargingPoint [" + chargeBoxId + "]");
         }
     }
 
     @ResponseStatus(HttpStatus.CONFLICT)
     static class TransactionStopException extends Exception {
-        public TransactionStopException(Integer transactionId, int timeout) {
+        public TransactionStopException(Integer transactionId, long timeout) {
             super("Transaction [" + transactionId + "] didn't finish within [" + timeout + "] seconds interval.");
+        }
+    }
+
+    @Getter
+    static class ChargePointStatusRepresentation {
+        private final String chargeBoxId;
+        private final String lastHeartbeat;
+        private final Collection<ConnectorStatusRepresentation> connectors;
+
+        ChargePointStatusRepresentation(String chargeBoxId, DateTime lastHeartbeat, Collection<ConnectorStatusRepresentation> connectors) {
+            this.chargeBoxId = chargeBoxId;
+            this.lastHeartbeat = lastHeartbeat.toString(ISODateTimeFormat.dateTime());
+            this.connectors = connectors;
+        }
+    }
+
+    @Getter
+    static class ConnectorStatusRepresentation {
+        private final int connectorId;
+        private final String chargeBoxId;
+        private final String status;
+        private final String errorCode;
+
+        ConnectorStatusRepresentation(int connectorId, String chargeBoxId, String status, String errorCode) {
+            this.connectorId = connectorId;
+            this.chargeBoxId = chargeBoxId;
+            this.status = status;
+            this.errorCode = errorCode;
         }
     }
 }

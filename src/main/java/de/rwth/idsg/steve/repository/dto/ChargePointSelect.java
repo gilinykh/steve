@@ -20,12 +20,14 @@ package de.rwth.idsg.steve.repository.dto;
 
 import de.rwth.idsg.steve.ocpp.OcppTransport;
 import lombok.Getter;
+import lombok.ToString;
 
 /**
  * @author Sevket Goekay <goekay@dbis.rwth-aachen.de>
  * @since 29.12.2014
  */
 @Getter
+@ToString
 public final class ChargePointSelect {
     private final OcppTransport ocppTransport;
     private final String chargeBoxId;

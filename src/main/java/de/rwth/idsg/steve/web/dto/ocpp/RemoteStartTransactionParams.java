@@ -21,6 +21,7 @@ package de.rwth.idsg.steve.web.dto.ocpp;
 import de.rwth.idsg.steve.web.validation.IdTag;
 import lombok.Getter;
 import lombok.Setter;
+import lombok.ToString;
 
 import javax.validation.constraints.Min;
 import javax.validation.constraints.NotBlank;
@@ -30,6 +31,7 @@ import javax.validation.constraints.NotBlank;
  * @since 01.01.2015
  */
 @Getter
+@ToString(callSuper = true)
 public class RemoteStartTransactionParams extends SingleChargePointSelect {
 
     @Min(value = 0, message = "Connector ID must be at least {value}")
