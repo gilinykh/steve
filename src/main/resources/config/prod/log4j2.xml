@@ -10,8 +10,8 @@
             <PatternLayout pattern="${logPattern}"/>
         </Console>
         <RollingRandomAccessFile name="FILE"
-                                 fileName="${sys:user.home}/logs/steve-upgraded.log"
-                                 filePattern="${sys:user.home}/logs/steve-upgraded-%d{yyyy-MM-dd}-%i.log.gz"
+                                 fileName="${sys:user.home}/logs/steve.log"
+                                 filePattern="${sys:user.home}/logs/steve-%d{yyyy-MM-dd}-%i.log.gz"
                                  immediateFlush="false"
                                  append="true">
             <PatternLayout pattern="${logPattern}"/>
