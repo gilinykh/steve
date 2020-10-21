@@ -243,6 +243,7 @@ public class TransactionResource {
             Function<List<Integer>, Optional<Integer>> mapResult = l -> Optional.ofNullable(l.get(0));
             Supplier<List<Integer>> source = () -> getActiveTransactionIds(chargeBoxId, connectorId);
 
+            log.debug("Polling start-transaction result for {}", pollDuration);
             return timedPoll(source, pollDuration, nonEmptyFlag, mapResult)
                     .orElseThrow(() -> new TransactionBlockedException(chargeBoxId, idTag, pollDuration.toSeconds()));
         }
@@ -258,11 +259,12 @@ public class TransactionResource {
         }
 
         TransactionDetails pollStoppedTransaction(Integer transactionId) throws TransactionStopException {
-            Duration pollDuration = Duration.ofSeconds(5);
+            Duration pollDuration = Duration.ofSeconds(60);
             Predicate<TransactionDetails> stopFlag = details -> details.getTransaction().getStopTimestampDT() != null;
             Function<TransactionDetails, Optional<TransactionDetails>> mapResult = Optional::ofNullable;
             Supplier<TransactionDetails> source = () -> transactionRepository.getDetails(transactionId);
 
+            log.debug("Polling stop-transaction result for {}", pollDuration);
             return timedPoll(source, pollDuration, stopFlag, mapResult)
                     .orElseThrow(() -> new TransactionStopException(transactionId, pollDuration.toSeconds()));
         }
@@ -271,20 +273,22 @@ public class TransactionResource {
         // until it matches the {@param condition}
         // maps it to return type with {@param mapResult}
         private static <E, R> Optional<R> timedPoll(Supplier<E> source, Duration duration, Predicate<E> condition, Function<E, Optional<R>> mapResult) {
-            Supplier<Long> nowMillis = () -> Instant.now().toEpochMilli();
-            long startMillis = nowMillis.get();
-            long currentMillis = startMillis;
+            Instant start = Instant.now();
+            Instant current = start;
+            Instant finish = start.plus(duration);
             E result;
 
-            while(currentMillis < duration.plusMillis(startMillis).toMillis()) {
+            while(current.isBefore(finish)) {
                 result = source.get();
 
                 if (condition.test(result)) {
+                    log.debug("Polling success. Time elapsed: {}", Duration.between(start, current));
                     return mapResult.apply(result);
                 }
-                currentMillis = nowMillis.get();
+                current = Instant.now();
             }
 
+            log.debug("Polling failed. Time elapsed: {}", Duration.between(start, current));
             return Optional.empty();
         }
     }
