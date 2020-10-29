@@ -21,6 +21,7 @@ package de.rwth.idsg.steve.service;
 import de.rwth.idsg.steve.ocpp.OcppProtocol;
 import de.rwth.idsg.steve.repository.OcppServerRepository;
 import de.rwth.idsg.steve.repository.SettingsRepository;
+import de.rwth.idsg.steve.repository.TransactionRepository;
 import de.rwth.idsg.steve.repository.dto.InsertConnectorStatusParams;
 import de.rwth.idsg.steve.repository.dto.InsertTransactionParams;
 import de.rwth.idsg.steve.repository.dto.UpdateChargeboxParams;
@@ -56,6 +57,7 @@ import org.joda.time.DateTime;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -72,6 +74,7 @@ public class CentralSystemService16_Service {
     @Autowired private OcppTagService ocppTagService;
     @Autowired private NotificationService notificationService;
     @Autowired private ChargePointHelperService chargePointHelperService;
+    @Autowired private TransactionRepository transactionRepository;
 
     public BootNotificationResponse bootNotification(BootNotificationRequest parameters, String chargeBoxIdentity,
                                                      OcppProtocol ocppProtocol) {
@@ -146,12 +149,19 @@ public class CentralSystemService16_Service {
     }
 
     public MeterValuesResponse meterValues(MeterValuesRequest parameters, String chargeBoxIdentity) {
-        ocppServerRepository.insertMeterValues(
-                chargeBoxIdentity,
-                parameters.getMeterValue(),
-                parameters.getConnectorId(),
-                parameters.getTransactionId()
-        );
+        List<Integer> transactionIds = transactionRepository.getActiveTransactionIds(chargeBoxIdentity, parameters.getConnectorId());
+        Optional<Integer> transactionId = transactionIds.stream().findFirst();
+
+        if (transactionId.isPresent()) {
+            ocppServerRepository.insertMeterValues(
+                    chargeBoxIdentity,
+                    parameters.getMeterValue(),
+                    parameters.getConnectorId(),
+                    transactionId.get()
+            );
+        } else {
+            log.error("Transaction not found for connector {} and charge-point {}", parameters.getConnectorId(), chargeBoxIdentity);
+        }
 
         return new MeterValuesResponse();
     }
