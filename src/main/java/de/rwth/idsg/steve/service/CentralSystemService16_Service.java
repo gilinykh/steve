@@ -149,19 +149,26 @@ public class CentralSystemService16_Service {
     }
 
     public MeterValuesResponse meterValues(MeterValuesRequest parameters, String chargeBoxIdentity) {
-        List<Integer> transactionIds = transactionRepository.getActiveTransactionIds(chargeBoxIdentity, parameters.getConnectorId());
-        Optional<Integer> transactionId = transactionIds.stream().findFirst();
-
-        if (transactionId.isPresent()) {
-            ocppServerRepository.insertMeterValues(
-                    chargeBoxIdentity,
-                    parameters.getMeterValue(),
-                    parameters.getConnectorId(),
-                    transactionId.get()
-            );
-        } else {
-            log.error("Transaction not found for connector {} and charge-point {}", parameters.getConnectorId(), chargeBoxIdentity);
-        }
+        ocppServerRepository.insertMeterValues(
+                chargeBoxIdentity,
+                parameters.getMeterValue(),
+                parameters.getConnectorId(),
+                parameters.getTransactionId()
+        );
+//
+//        List<Integer> transactionIds = transactionRepository.getActiveTransactionIds(chargeBoxIdentity, parameters.getConnectorId());
+//        Optional<Integer> transactionId = transactionIds.stream().findFirst();
+//
+//        if (transactionId.isPresent()) {
+//            ocppServerRepository.insertMeterValues(
+//                    chargeBoxIdentity,
+//                    parameters.getMeterValue(),
+//                    parameters.getConnectorId(),
+//                    transactionId.get()
+//            );
+//        } else {
+//            log.error("Transaction not found for connector {} and charge-point {}", parameters.getConnectorId(), chargeBoxIdentity);
+//        }
 
         return new MeterValuesResponse();
     }
