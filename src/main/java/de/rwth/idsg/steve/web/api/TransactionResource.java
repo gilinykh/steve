@@ -401,7 +401,7 @@ public class TransactionResource {
 
         ChargePointStatusRepresentation(String chargeBoxId, DateTime lastHeartbeat, Collection<ConnectorStatusRepresentation> connectors) {
             this.chargeBoxId = chargeBoxId;
-            this.lastHeartbeat = lastHeartbeat.toString(ISODateTimeFormat.dateTime());
+            this.lastHeartbeat = lastHeartbeat != null ? lastHeartbeat.toString(ISODateTimeFormat.dateTime()) : null;
             this.connectors = connectors;
         }
     }
