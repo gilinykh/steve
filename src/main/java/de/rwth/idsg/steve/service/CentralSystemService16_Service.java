@@ -149,26 +149,27 @@ public class CentralSystemService16_Service {
     }
 
     public MeterValuesResponse meterValues(MeterValuesRequest parameters, String chargeBoxIdentity) {
-        ocppServerRepository.insertMeterValues(
+        Optional<Integer> transactionId = Optional.ofNullable(parameters.getTransactionId())
+                .flatMap(tid -> tid == 0 ? Optional.empty() : Optional.of(tid));
+
+        if (transactionId.isEmpty()) {
+            log.warn("Meter values for unspecified transaction! Attempting to resolve it by connector...");
+            List<Integer> transactionIds = transactionRepository.getActiveTransactionIds(chargeBoxIdentity, parameters.getConnectorId());
+
+            if (transactionIds.size() == 1) {
+                log.warn("Resolved transaction {}", transactionIds.get(0));
+                transactionId = Optional.of(transactionIds.get(0));
+            } else {
+                log.error("Unable to resolve transaction among {} active. No meter values stored.", transactionIds.size());
+            }
+        }
+
+        transactionId.ifPresent(tid -> ocppServerRepository.insertMeterValues(
                 chargeBoxIdentity,
                 parameters.getMeterValue(),
                 parameters.getConnectorId(),
-                parameters.getTransactionId()
-        );
-//
-//        List<Integer> transactionIds = transactionRepository.getActiveTransactionIds(chargeBoxIdentity, parameters.getConnectorId());
-//        Optional<Integer> transactionId = transactionIds.stream().findFirst();
-//
-//        if (transactionId.isPresent()) {
-//            ocppServerRepository.insertMeterValues(
-//                    chargeBoxIdentity,
-//                    parameters.getMeterValue(),
-//                    parameters.getConnectorId(),
-//                    transactionId.get()
-//            );
-//        } else {
-//            log.error("Transaction not found for connector {} and charge-point {}", parameters.getConnectorId(), chargeBoxIdentity);
-//        }
+                tid
+        ));
 
         return new MeterValuesResponse();
     }
