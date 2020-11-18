@@ -210,6 +210,23 @@ public class CentralSystemService16_Service {
     }
 
     public StopTransactionResponse stopTransaction(StopTransactionRequest parameters, String chargeBoxIdentity) {
+        if (parameters.getTransactionId() != 0) {
+            return doStopTransaction(parameters, chargeBoxIdentity);
+        } else {
+            log.warn("Stop requested for unspecified transaction! Attempting to resolve it by charge-point...");
+            List<Integer> transactionIds = transactionRepository.getActiveTransactionIds(chargeBoxIdentity);
+
+            if (transactionIds.size() == 1) {
+                parameters.setTransactionId(transactionIds.get(0));
+                return doStopTransaction(parameters, chargeBoxIdentity);
+            }
+
+            log.error("Unable to resolve transaction among {} active. Aborting!", transactionIds.size());
+            throw new IllegalArgumentException("Cannot stop transaction with invalid id 0!");
+        }
+    }
+
+    private StopTransactionResponse doStopTransaction(StopTransactionRequest parameters, String chargeBoxIdentity) {
         int transactionId = parameters.getTransactionId();
         String stopReason = parameters.isSetReason() ? parameters.getReason().value() : null;
 
