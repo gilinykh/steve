@@ -95,7 +95,7 @@ public class TransactionRepositoryImpl implements TransactionRepository {
         return ctx.select(TRANSACTION.TRANSACTION_PK)
                 .from(TRANSACTION)
                 .join(CONNECTOR)
-                .on(TRANSACTION.CONNECTOR_PK.equal(CONNECTOR.CONNECTOR_PK)).and(CONNECTOR.CONNECTOR_PK.eq(connectorId))
+                .on(TRANSACTION.CONNECTOR_PK.equal(CONNECTOR.CONNECTOR_PK)).and(CONNECTOR.CONNECTOR_ID.eq(connectorId))
                 .and(CONNECTOR.CHARGE_BOX_ID.equal(chargeBoxId))
                 .where(TRANSACTION.STOP_TIMESTAMP.isNull())
                 .orderBy(TRANSACTION.TRANSACTION_PK.desc())
